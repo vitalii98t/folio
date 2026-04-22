@@ -1,0 +1,145 @@
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 20px;
+}
+
+.card {
+  text-align: center;
+  max-width: 480px;
+  padding: 44px 40px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  box-shadow: var(--shadow-lg), var(--shadow-glass);
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.card p {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.steps {
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.steps h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.steps ol {
+  padding-left: 20px;
+}
+
+.steps li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.osLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 12px 0 4px;
+}
+
+.osLabel:first-of-type {
+  margin-top: 0;
+}
+
+.code {
+  display: block;
+  background: var(--bg-tertiary);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  user-select: all;
+  word-break: break-all;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.stepNote {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.primaryBtn {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 11px 26px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  letter-spacing: -0.01em;
+  box-shadow: 0 2px 12px rgba(109, 213, 237, 0.3);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(109, 213, 237, 0.45);
+}
+
+.secondaryBtn {
+  background: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.secondaryBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.btnGroup {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}

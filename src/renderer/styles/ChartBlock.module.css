@@ -1,0 +1,112 @@
+.wrapper {
+  margin: 10px 0;
+  padding: 14px 16px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  box-shadow: var(--shadow-glass);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.chart {
+  width: 100%;
+}
+
+.chart :global(.recharts-surface) {
+  outline: none;
+}
+
+.chart :global(.recharts-cartesian-axis-tick text),
+.chart :global(.recharts-legend-item-text) {
+  fill: var(--text-muted);
+}
+
+.error {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius);
+  margin: 8px 0;
+}
+
+/* Tooltip */
+.tooltip {
+  background: rgba(15, 15, 22, 0.94);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  min-width: 120px;
+}
+
+.tooltipLabel {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: -0.005em;
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+}
+
+.tooltipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.tooltipName {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.tooltipValue {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.005em;
+}
+
+.legendDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}

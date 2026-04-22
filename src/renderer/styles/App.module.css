@@ -1,0 +1,98 @@
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+  color: var(--text-secondary);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.emptyCard {
+  text-align: center;
+  padding: 56px 48px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  box-shadow: var(--shadow-lg), var(--shadow-glass);
+  max-width: 420px;
+}
+
+.emptyCard h1 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.emptyCard p {
+  color: var(--text-secondary);
+  margin-bottom: 28px;
+  font-size: 14px;
+}
+
+.primaryBtn {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 11px 26px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  letter-spacing: -0.01em;
+  box-shadow: 0 2px 12px rgba(109, 213, 237, 0.3);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(109, 213, 237, 0.45);
+}
+
+.noSession {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+}

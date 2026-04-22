@@ -1,0 +1,422 @@
+.wide {
+  width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.notes {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.55;
+  outline: none;
+  resize: vertical;
+  min-height: 180px;
+  max-height: 400px;
+  transition: border-color 0.15s;
+}
+
+.notes:focus {
+  border-color: var(--accent);
+}
+
+.notes::placeholder {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ── Integrations section ── */
+.section {
+  margin-top: 8px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: -0.005em;
+}
+
+.sectionCount {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.empty {
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-light);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.empty b {
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  transition: border-color 0.15s;
+}
+
+.row:hover {
+  border-color: var(--border-strong);
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rowMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.rowName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+  padding-left: 18px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: all 0.18s;
+}
+
+.statusDot.on {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.statusDot.off {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.statusDot.err {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.errBadge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  letter-spacing: 0.02em;
+}
+
+.resultToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-hover);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(109, 213, 237, 0.35);
+  text-underline-offset: 2px;
+  letter-spacing: -0.005em;
+}
+
+.resultToggle:hover {
+  text-decoration-color: var(--accent-hover);
+}
+
+.resultBlock {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* iOS-style toggle */
+.toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.18s;
+}
+
+.toggle:hover {
+  border-color: var(--border-strong);
+}
+
+.toggle.toggleOn {
+  background: var(--accent-gradient);
+  border-color: transparent;
+  box-shadow: 0 0 12px rgba(109, 213, 237, 0.35);
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.toggleOn .toggleKnob {
+  transform: translateX(14px);
+}
+
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+  transition: all 0.15s;
+}
+
+.deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.editBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+  transition: all 0.15s;
+}
+
+.editBtn:hover {
+  background: var(--accent-soft);
+  border-color: rgba(109, 213, 237, 0.25);
+  color: var(--accent-hover);
+}
+
+.rowEditing {
+  border-color: rgba(109, 213, 237, 0.35) !important;
+  background: var(--accent-soft) !important;
+}
+
+.addBtn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.addBtn:hover {
+  background: var(--accent-soft);
+  border-color: rgba(109, 213, 237, 0.4);
+  color: var(--accent-hover);
+}
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.addForm input,
+.addForm textarea {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  letter-spacing: -0.005em;
+}
+
+.addForm input:focus,
+.addForm textarea:focus {
+  border-color: rgba(109, 213, 237, 0.4);
+}
+
+.addForm textarea {
+  resize: vertical;
+  min-height: 70px;
+  line-height: 1.5;
+}
+
+.addForm input::placeholder,
+.addForm textarea::placeholder {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.addFormRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.intervalLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.intervalLabel select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.intervalLabel select option {
+  background: #15151c;
+  color: var(--text-primary);
+  padding: 4px 8px;
+}
+
+.intervalLabel select option:checked {
+  background: linear-gradient(0deg, rgba(109, 213, 237, 0.25), rgba(109, 213, 237, 0.25)), #15151c;
+  color: #fff;
+}
+
+.saveTaskBtn {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: -0.005em;
+  box-shadow: 0 1px 8px rgba(109, 213, 237, 0.3);
+}
+
+.saveTaskBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(109, 213, 237, 0.45);
+}
+
+.saveTaskBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: none;
+}

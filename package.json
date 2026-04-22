@@ -1,0 +1,106 @@
+{
+  "name": "vital-ai",
+  "version": "0.1.0",
+  "description": "Folio — intelligent desktop assistant for Finmap",
+  "author": "vitalii98t",
+  "homepage": "https://finmap.online",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:main": "node build-main.mjs",
+    "dev:renderer": "vite",
+    "dev:electron": "electron .",
+    "icons": "node scripts/gen-icons.mjs",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "node build-main.mjs",
+    "build:renderer": "vite build",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:all": "electron-builder -mwl"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.8.1",
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2"
+  },
+  "build": {
+    "appId": "com.vital.ai",
+    "productName": "Folio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "build/icon*.png",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@anthropic-ai/claude-code/**/*",
+      "node_modules/pdf-parse/**/*"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.finance",
+      "icon": "build/icon-512.png",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Folio",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "tar.gz"
+      ],
+      "icon": "build/icon-512.png",
+      "category": "Office",
+      "maintainer": "vitalii98t"
+    }
+  }
+}

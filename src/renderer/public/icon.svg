@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#15151c"/>
+      <stop offset="100%" stop-color="#05050a"/>
+    </linearGradient>
+    <linearGradient id="letters" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2193b0"/>
+      <stop offset="100%" stop-color="#6dd5ed"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="0.25" cy="0.15" r="0.75">
+      <stop offset="0%" stop-color="#6dd5ed" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#6dd5ed" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+
+  <!-- Dark rounded square background -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#bgDark)"/>
+
+  <!-- Subtle cyan ambient glow from top-left -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#ambient)"/>
+
+  <!-- Soft glow behind letters -->
+  <text x="256" y="276"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="'Segoe UI', 'SF Pro Display', 'Inter', Arial, sans-serif"
+        font-weight="900"
+        font-size="290"
+        letter-spacing="-14"
+        fill="#6dd5ed"
+        opacity="0.35"
+        filter="url(#glow)">FL</text>
+
+  <!-- Main FL letters with gradient -->
+  <text x="256" y="276"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="'Segoe UI', 'SF Pro Display', 'Inter', Arial, sans-serif"
+        font-weight="900"
+        font-size="290"
+        letter-spacing="-14"
+        fill="url(#letters)">FL</text>
+
+  <!-- Inner stroke -->
+  <rect x="1" y="1" width="510" height="510" rx="111" ry="111"
+        fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+</svg>

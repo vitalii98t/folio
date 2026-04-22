@@ -1,0 +1,44 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+}
+
+.readonly {
+  background: rgba(109, 213, 237, 0.12);
+  color: var(--accent-hover);
+  border: 1px solid rgba(109, 213, 237, 0.25);
+}
+
+.mutation {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.readonly .dot {
+  background: var(--accent);
+}
+
+.mutation .dot {
+  background: var(--danger);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

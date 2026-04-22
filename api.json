@@ -1,0 +1,6627 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v2.2/webhooks": {
+      "post": {
+        "operationId": "WebhooksController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/webhook_response_dto_Webhook"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "WebhooksController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All available webhooks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/webhook_response_dto_Webhook"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/webhooks/{id}": {
+      "patch": {
+        "operationId": "WebhooksController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/webhook_response_dto_Webhook"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "WebhooksController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The Health Check is successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {},
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Health Check is not successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "error"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        },
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2.2/currencies": {
+      "get": {
+        "operationId": "CurrenciesController_getData",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All supported currencies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/currency_response_dto_Currency"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "currencies"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/currencyExchangeRates/custom/all": {
+      "get": {
+        "operationId": "CurrencyExchangeRatesController_getAllCustom",
+        "summary": "Get custom currency exchange rate",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All custom currency exchange rates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomCurrencyExchangeRate"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "currencyExchangeRates"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/currencyExchangeRates/custom": {
+      "post": {
+        "operationId": "CurrencyExchangeRatesController_upsertCustom",
+        "summary": "Create or update custom currency exchange rate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomCurrencyExchangeRate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created or updated custom currency exchange rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomCurrencyExchangeRate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "404": {
+            "description": "Currency not found"
+          }
+        },
+        "tags": [
+          "currencyExchangeRates"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/currencyExchangeRates/custom/{from}/{to}": {
+      "delete": {
+        "operationId": "CurrencyExchangeRatesController_deleteCustom",
+        "summary": "Delete custom currency exchange rate",
+        "parameters": [
+          {
+            "name": "from",
+            "required": true,
+            "in": "path",
+            "description": "from currency",
+            "schema": {
+              "example": "USD",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": true,
+            "in": "path",
+            "description": "to currency",
+            "schema": {
+              "example": "EUR",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "404": {
+            "description": "Currency not found"
+          }
+        },
+        "tags": [
+          "currencyExchangeRates"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/accounts": {
+      "get": {
+        "operationId": "AccountsController_get",
+        "parameters": [
+          {
+            "name": "withBalances",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "true",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All availables to write accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/account_response_dto_Account"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/tags": {
+      "get": {
+        "operationId": "TagsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables tags.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/tags_response_dto_Tag"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "tags"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "TagsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/tags_response_dto_Tag"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "tags"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/tags/{id}": {
+      "patch": {
+        "operationId": "TagsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/tags_response_dto_Tag"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "tags"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TagsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "tags"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/projects": {
+      "get": {
+        "operationId": "ProjectsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/project_response_dto_Project"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ProjectsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/project_response_dto_Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/projects/{id}": {
+      "patch": {
+        "operationId": "ProjectsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/project_response_dto_Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/income": {
+      "get": {
+        "operationId": "CategoriesIncomeController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables category.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/category_response_dto_Category"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CategoriesIncomeController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/category_response_dto_Category"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/income/{id}/excludeFilterByDashboard/{dashboardId}": {
+      "post": {
+        "operationId": "CategoriesIncomeController_excludeCategoryByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "CategoriesIncomeController_getCategoryFilterByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One filter item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CategoriesIncomeController_clearCategorySettingsByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/income/{id}": {
+      "patch": {
+        "operationId": "CategoriesIncomeController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/category_response_dto_Category"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CategoriesIncomeController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/expense": {
+      "get": {
+        "operationId": "CategoriesExpenseController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables category.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/category_response_dto_Category"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CategoriesExpenseController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/category_response_dto_Category"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/expense/{id}/excludeFilterByDashboard/{dashboardId}": {
+      "post": {
+        "operationId": "CategoriesExpenseController_excludeCategoryByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "CategoriesExpenseController_getCategoryFilterByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One filter item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CategoriesExpenseController_clearCategorySettingsByDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dashboardId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemInDashboardCondition"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/categories/expense/{id}": {
+      "patch": {
+        "operationId": "CategoriesExpenseController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/category_response_dto_Category"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CategoriesExpenseController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "categories/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/investors": {
+      "get": {
+        "operationId": "InvestorsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables investors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/investor_response_dto_Investor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "investors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "InvestorsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/investor_response_dto_Investor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "investors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/investors/{id}": {
+      "patch": {
+        "operationId": "InvestorsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/investor_response_dto_Investor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "investors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "InvestorsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "investors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/creditors": {
+      "get": {
+        "operationId": "CreditorsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables creditors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/creditor_response_dto_Creditor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "creditors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CreditorsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreditorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/creditor_response_dto_Creditor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "creditors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/creditors/{id}": {
+      "patch": {
+        "operationId": "CreditorsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreditorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/creditor_response_dto_Creditor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "creditors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CreditorsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "creditors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/debitors": {
+      "get": {
+        "operationId": "BorrowersController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables customers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Debitor"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "debitors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "BorrowersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebitorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Debitor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "debitors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/debitors/{id}": {
+      "patch": {
+        "operationId": "BorrowersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebitorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Debitor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "debitors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "BorrowersController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "debitors"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/suppliers": {
+      "get": {
+        "operationId": "SuppliersController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables suppliers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/supplier_response_dto_Supplier"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "suppliers"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "SuppliersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/supplier_response_dto_Supplier"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "suppliers"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/suppliers/{id}": {
+      "patch": {
+        "operationId": "SuppliersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/supplier_response_dto_Supplier"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "suppliers"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "SuppliersController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "suppliers"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/employees": {
+      "get": {
+        "operationId": "StaffMembersController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables employees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/employee_response_dto_Employee"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "employees"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "StaffMembersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/employee_response_dto_Employee"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "employees"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/employees/{id}": {
+      "patch": {
+        "operationId": "StaffMembersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/employee_response_dto_Employee"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "employees"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "StaffMembersController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "employees"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/owners": {
+      "get": {
+        "operationId": "OwnersController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables employees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/owner_response_dto_Owner"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "owners"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "OwnersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/owner_response_dto_Owner"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "owners"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/owners/{id}": {
+      "patch": {
+        "operationId": "OwnersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/owner_response_dto_Owner"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "owners"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "OwnersController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "owners"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/tax-organisations": {
+      "get": {
+        "operationId": "TaxOrganisationsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All availables employees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/tax_organisations_response_dto_TaxOrganisation"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "tax-organisations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "TaxOrganisationsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxOrganisationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/tax_organisations_response_dto_TaxOrganisation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "tax-organisations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/tax-organisations/{id}": {
+      "patch": {
+        "operationId": "TaxOrganisationsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxOrganisationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/tax_organisations_response_dto_TaxOrganisation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "tax-organisations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TaxOrganisationsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted."
+          },
+          "400": {
+            "description": "This functionality is deprecated and no longer supported."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Item not found."
+          }
+        },
+        "tags": [
+          "tax-organisations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/income": {
+      "post": {
+        "operationId": "IncomeController_create",
+        "summary": "Create income operation",
+        "parameters": [
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncomeOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "operations/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/income/{id}": {
+      "patch": {
+        "operationId": "IncomeController_updateById",
+        "summary": "Update operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncomeOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "IncomeController_deleteById",
+        "summary": "Delete operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/income/byExternalId/{id}": {
+      "patch": {
+        "operationId": "IncomeController_updateByExternalId",
+        "summary": "Update operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncomeOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "IncomeController_deleteByExternalId",
+        "summary": "Delete operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/income"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/expense": {
+      "post": {
+        "operationId": "ExpenseController_create",
+        "summary": "Create expense operation",
+        "parameters": [
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "operations/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/expense/{id}": {
+      "patch": {
+        "operationId": "ExpenseController_updateById",
+        "summary": "Update operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ExpenseController_deleteById",
+        "summary": "Delete operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/expense/byExternalId/{id}": {
+      "patch": {
+        "operationId": "ExpenseController_updateByExternalId",
+        "summary": "Update operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ExpenseController_deleteByExternalId",
+        "summary": "Delete operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/expense"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/transfer": {
+      "post": {
+        "operationId": "TransferController_create",
+        "summary": "Create transfer operation",
+        "parameters": [
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "operations/transfer"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/transfer/{id}": {
+      "patch": {
+        "operationId": "TransferController_updateById",
+        "summary": "Update operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/transfer"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TransferController_deleteById",
+        "summary": "Delete operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb32",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/transfer"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/transfer/byExternalId/{id}": {
+      "patch": {
+        "operationId": "TransferController_updateByExternalId",
+        "summary": "Update operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOperationUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/transfer"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TransferController_deleteByExternalId",
+        "summary": "Delete operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "2fe94d75-7a77-4cfc-a5ed-8e1cbf49bb8e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations/transfer"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          },
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/pdf/{id}": {
+      "get": {
+        "operationId": "InvoiceController_generatePdf",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb3d",
+              "type": "string"
+            }
+          },
+          {
+            "name": "language",
+            "required": false,
+            "in": "query",
+            "description": "Invoice language (one of \"ru\" ,\"en\" ,\"uk\" ,\"pl\" ,\"es\" ,\"cz\" ,\"tr\" ,\"uz\" ,\"pt-BR\")",
+            "schema": {
+              "default": "en",
+              "example": "uk",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF file successfully generated.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices": {
+      "post": {
+        "operationId": "InvoiceController_createInvoice",
+        "summary": "Create invoice",
+        "parameters": [
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "409": {
+            "description": "Item already exist."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/{id}": {
+      "patch": {
+        "operationId": "InvoiceController_updateById",
+        "summary": "Update operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb3d",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "InvoiceController_deleteById",
+        "summary": "Delete operation by id",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb3d",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/byExternalId/{id}": {
+      "patch": {
+        "operationId": "InvoiceController_updateByExternalId",
+        "summary": "Update operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "08bdf649-f448-4b88-9d2b-54050445de26",
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "User timezone offset (in milliseconds), influence only \"approved\" field (defines whether operation is future).",
+            "schema": {
+              "default": 0,
+              "example": 7200000,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceOperationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "InvoiceController_deleteByExternalId",
+        "summary": "Delete operation by externalId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "08bdf649-f448-4b88-9d2b-54050445de26",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationInsertStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/goods": {
+      "get": {
+        "operationId": "InvoiceGoodsController_get",
+        "summary": "Get all invoice goods",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of invoice goods",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceGoodResp"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/goods"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "InvoiceGoodsController_create",
+        "summary": "Create new invoice good",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseInvoiceGoodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created invoice good",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceGoodResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/goods"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/goods/{id}": {
+      "patch": {
+        "operationId": "InvoiceGoodsController_update",
+        "summary": "Patch one invoice good",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Invoice good id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb47",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseInvoiceGoodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated invoice good",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceGoodResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/goods"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "InvoiceGoodsController_delete",
+        "summary": "Delete one invoice good",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Invoice good id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb47",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted invoice good",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceGoodResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/goods"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/companies": {
+      "get": {
+        "operationId": "InvoiceCompaniesController_get",
+        "summary": "Get all invoice companies",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of invoice company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceCompaniesResp"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/companies"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "InvoiceCompaniesController_create",
+        "summary": "Create new invoice companies",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseInvoiceCompaniesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created invoice company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceCompaniesResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/companies"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/invoices/companies/{id}": {
+      "patch": {
+        "operationId": "InvoiceCompaniesController_update",
+        "summary": "Patch one invoice company",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Invoice company id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb48",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseInvoiceCompaniesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated invoice company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceCompaniesResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/companies"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "InvoiceCompaniesController_delete",
+        "summary": "Delete one invoice company",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Invoice company id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb48",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted invoice company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceCompaniesResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "invoices/companies"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/attachment": {
+      "get": {
+        "operationId": "AttachmentController_get",
+        "summary": "Get all attachments",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of attachments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttachmentResp"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "attachment"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "AttachmentController_create",
+        "summary": "Create new attachment",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "description": "Upload a file",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUploadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created attachment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "attachment"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/attachment/{id}": {
+      "patch": {
+        "operationId": "AttachmentController_update",
+        "summary": "Patch one attachment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Attachment id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb49",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseAttachmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated attachment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "attachment"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "AttachmentController_delete",
+        "summary": "Delete one attachment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Attachment id",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb49",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted attachment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "attachment"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/details": {
+      "get": {
+        "operationId": "LogController_get",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "Id of operation",
+            "schema": {
+              "example": "bd8ac66f-6411-4f61-9178-d80b3343f41e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": false,
+            "in": "query",
+            "description": "Id of operation",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb3e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finded operation by id or externalId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "At least one of the parameters (externalId, id) must be specified"
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Not found."
+          }
+        },
+        "tags": [
+          "operations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/list": {
+      "post": {
+        "operationId": "LogController_getList",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilterLogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A list of operations has been created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/invoices/details": {
+      "get": {
+        "operationId": "LogController_invoicesGet",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "Id of operation",
+            "schema": {
+              "example": "bd8ac66f-6411-4f61-9178-d80b3343f41e",
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": false,
+            "in": "query",
+            "description": "Id of operation",
+            "schema": {
+              "example": "69d7bbfc5f10c3ed05c6bb3e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finded invoice by id or externalId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoicesList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "At least one of the parameters (externalId, id) must be specified"
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Not found."
+          }
+        },
+        "tags": [
+          "operations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    },
+    "/v2.2/operations/invoices/list": {
+      "post": {
+        "operationId": "LogController_invoicesList",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilterInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A list of invoices has been created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoicesList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden."
+          }
+        },
+        "tags": [
+          "operations"
+        ],
+        "security": [
+          {
+            "API Key Auth": []
+          }
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "FINMAP public API",
+    "description": "FINMAP API description",
+    "version": "2.2",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "API Key Auth": {
+        "type": "apiKey",
+        "name": "apiKey",
+        "in": "header"
+      }
+    },
+    "schemas": {
+      "WebhookDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ]
+      },
+      "webhook_response_dto_Webhook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url"
+        ]
+      },
+      "currency_response_dto_Currency": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "id"
+        ]
+      },
+      "CustomCurrencyExchangeRate": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "USD",
+            "description": "from currency"
+          },
+          "to": {
+            "type": "string",
+            "example": "EUR",
+            "description": "to currency"
+          },
+          "rate": {
+            "type": "number",
+            "example": 1.2,
+            "description": "currency exchange rate"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "rate"
+        ]
+      },
+      "DeletedResponse": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "example": true,
+            "description": "deleted status"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
+      "account_response_dto_Account": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          },
+          "currencyId": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "companyCurrencyBalance": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId",
+          "currencyId"
+        ]
+      },
+      "tags_response_dto_Tag": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "TagDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "project_response_dto_Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "ProjectDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "category_response_dto_Category": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "vendorEditLockUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId",
+          "isSystem",
+          "vendorEditLockUrl"
+        ]
+      },
+      "CategoryDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "vendorEditLockUrl": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "vendorEditLockUrl",
+          "parentId"
+        ]
+      },
+      "ItemInDashboardCondition": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "itemId",
+          "type"
+        ]
+      },
+      "investor_response_dto_Investor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "InvestorDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "creditor_response_dto_Creditor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "CreditorDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "Debitor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "DebitorDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "supplier_response_dto_Supplier": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "SupplierDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "employee_response_dto_Employee": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "EmployeeDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "owner_response_dto_Owner": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "OwnerDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "tax_organisations_response_dto_TaxOrganisation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "parentId"
+        ]
+      },
+      "TaxOrganisationDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "ProjectInOperationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "69009f27afd43b202cd54aa0"
+          },
+          "stake": {
+            "type": "number",
+            "default": 100
+          },
+          "companyCurrencySum": {
+            "type": "number",
+            "example": 100
+          },
+          "sum": {
+            "type": "number",
+            "example": 100
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "CategoryInOperationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "69009f27afd43b202cd54aa0"
+          },
+          "stake": {
+            "type": "number",
+            "default": 100
+          },
+          "companyCurrencySum": {
+            "type": "number",
+            "example": 100
+          },
+          "sum": {
+            "type": "number",
+            "example": 100
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "IncomeOperationDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "default": 0,
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "amountInCompanyCurrency": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "exchangeRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "transactionCurrency": {
+            "type": "number",
+            "example": "USD"
+          },
+          "transactionCurrencyRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "dateOfPayment": {
+            "type": "number",
+            "example": 1775918844038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775001600000,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1777593599999,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "accountToId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb27"
+          },
+          "categoryId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb28"
+          },
+          "counterpartyId": {
+            "type": "string",
+            "description": "One field for all counterparty types. You can pass here borrowerId, creditorId, customerId, investorId",
+            "example": "69d7bbfc5f10c3ed05c6bb29"
+          },
+          "borrowerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2a"
+          },
+          "creditorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2b"
+          },
+          "customerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2c"
+          },
+          "investorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2d"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "externalId": {
+            "type": "string",
+            "description": "unique operation identifier",
+            "default": "new uuid v4",
+            "example": "5faa9f57-1229-4d31-9d73-7b704b129f46"
+          }
+        }
+      },
+      "OperationInsertStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "Processed now",
+              "Stored",
+              "Error",
+              "In the queue for processing"
+            ]
+          },
+          "statusCode": {
+            "type": "string",
+            "enum": [
+              "1",
+              "2",
+              "3",
+              "0"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "statusCode"
+        ]
+      },
+      "IncomeOperationUpdateDto": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "amountInCompanyCurrency": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "exchangeRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "transactionCurrency": {
+            "type": "number",
+            "example": "USD"
+          },
+          "transactionCurrencyRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "dateOfPayment": {
+            "type": "number",
+            "example": 1775918844038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775001600000,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1777593599999,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "accountToId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb27"
+          },
+          "categoryId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb28"
+          },
+          "counterpartyId": {
+            "type": "string",
+            "description": "One field for all counterparty types. You can pass here borrowerId, creditorId, customerId, investorId",
+            "example": "69d7bbfc5f10c3ed05c6bb29"
+          },
+          "borrowerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2a"
+          },
+          "creditorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2b"
+          },
+          "customerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2c"
+          },
+          "investorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb2d"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044043,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "externalDevComment": {
+            "type": "string",
+            "description": "Field to be filled by integration developers (not visible to users)"
+          }
+        }
+      },
+      "ExpenseOperationDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "default": 0,
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "amountInCompanyCurrency": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "exchangeRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "transactionCurrency": {
+            "type": "number",
+            "example": "USD"
+          },
+          "transactionCurrencyRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "dateOfPayment": {
+            "type": "number",
+            "example": 1775918844038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775001600000,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1777593599999,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "accountFromId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb1e"
+          },
+          "categoryId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb1f"
+          },
+          "counterpartyId": {
+            "type": "string",
+            "description": "One field for all counterparty types. You can pass here borrowerId, creditorId, employeeId, supplierId, ownerId, taxOrganisationId",
+            "example": "69d7bbfc5f10c3ed05c6bb20"
+          },
+          "borrowerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb21"
+          },
+          "creditorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb22"
+          },
+          "employeeId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb23"
+          },
+          "supplierId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb24"
+          },
+          "ownerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb25"
+          },
+          "taxOrganisationId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb26"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "externalId": {
+            "type": "string",
+            "description": "unique operation identifier",
+            "default": "new uuid v4",
+            "example": "5faa9f57-1229-4d31-9d73-7b704b129f46"
+          }
+        }
+      },
+      "ExpenseOperationUpdateDto": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "amountInCompanyCurrency": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "exchangeRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "transactionSum": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0
+          },
+          "transactionCurrency": {
+            "type": "number",
+            "example": "USD"
+          },
+          "transactionCurrencyRate": {
+            "type": "number",
+            "example": 0.3,
+            "minimum": 0
+          },
+          "dateOfPayment": {
+            "type": "number",
+            "example": 1775918844038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775001600000,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1777593599999,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "accountFromId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb1e"
+          },
+          "categoryId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb1f"
+          },
+          "counterpartyId": {
+            "type": "string",
+            "description": "One field for all counterparty types. You can pass here borrowerId, creditorId, employeeId, supplierId, ownerId, taxOrganisationId",
+            "example": "69d7bbfc5f10c3ed05c6bb20"
+          },
+          "borrowerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb21"
+          },
+          "creditorId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb22"
+          },
+          "employeeId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb23"
+          },
+          "supplierId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb24"
+          },
+          "ownerId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb25"
+          },
+          "taxOrganisationId": {
+            "type": "string",
+            "deprecated": true,
+            "example": "69d7bbfc5f10c3ed05c6bb26"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044043,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "externalDevComment": {
+            "type": "string",
+            "description": "Field to be filled by integration developers (not visible to users)"
+          }
+        }
+      },
+      "TransferOperationDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044038,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "default": 0,
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "accountToId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb2e"
+          },
+          "accountFromId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb2f"
+          },
+          "amountTo": {
+            "type": "number",
+            "description": "If accountTo and accountFrom has different currencies",
+            "minimum": 0,
+            "example": 100
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "externalId": {
+            "type": "string",
+            "description": "unique operation identifier",
+            "default": "new uuid v4",
+            "example": "5faa9f57-1229-4d31-9d73-7b704b129f46"
+          }
+        },
+        "required": [
+          "accountToId",
+          "accountFromId"
+        ]
+      },
+      "TransferOperationUpdateDto": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "amountTo": {
+            "type": "number",
+            "description": "If accountTo and accountFrom has different currencies",
+            "minimum": 0,
+            "example": 100
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Id of project",
+            "example": "69d7bbfc5f10c3ed05c6bb30"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectInOperationDto"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryInOperationDto"
+            }
+          },
+          "tagIds": {
+            "description": "Ids of tags",
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb31"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "example": 1775746044043,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "amount": {
+            "type": "number",
+            "example": 100,
+            "minimum": 0,
+            "description": "Sum of operation"
+          },
+          "accountToId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb3b"
+          },
+          "accountFromId": {
+            "type": "string",
+            "example": "69d7bbfc5f10c3ed05c6bb3c"
+          },
+          "externalDevComment": {
+            "type": "string",
+            "description": "Field to be filled by integration developers (not visible to users)"
+          }
+        },
+        "required": [
+          "accountToId",
+          "accountFromId"
+        ]
+      },
+      "InvoiceOperationDto": {
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "description": "unique operation identifier",
+            "default": "new uuid v4",
+            "example": "5faa9f57-1229-4d31-9d73-7b704b129f46"
+          },
+          "dateOfPayment": {
+            "type": "number",
+            "example": 1775918844048,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "date": {
+            "type": "number",
+            "description": "Date of operation",
+            "default": "current date in utc",
+            "example": 1775746044048,
+            "minimum": 1420070400000,
+            "maximum": 2091365243872
+          },
+          "comment": {
+            "type": "string",
+            "example": "Test API"
+          },
+          "invoiceNumber": {
+            "type": "string",
+            "example": "ExampleInvoice123456",
+            "description": "invoice number"
+          },
+          "invoiceCompanyId": {
+            "type": "string",
+            "example": "63a0acd05fd26f3fa73fef4f",
+            "description": "id of invoice company"
+          },
+          "supplierId": {
+            "type": "string",
+            "example": "63a0acd05fd26f7d203fef3f",
+            "description": "id of supplier (or client)"
+          },
+          "invoiceCompanyDetails": {
+            "type": "string",
+            "example": "company details (IBAN)",
+            "description": "information about my props"
+          },
+          "supplierDetails": {
+            "type": "string",
+            "example": "counterparty details (IBAN)",
+            "description": "information about counterparty"
+          },
+          "goods": {
+            "example": [
+              {
+                "id": "63a01aa80e714d7a683b3ea4",
+                "count": 10,
+                "price": 10.1,
+                "vat": 3
+              }
+            ],
+            "description": "array with information about goods",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invoiceCurrency": {
+            "type": "string",
+            "example": "UAH",
+            "description": "Currency"
+          },
+          "confirmedInvoice": {
+            "type": "boolean",
+            "example": false,
+            "description": "confirmed invoice status"
+          },
+          "shipping": {
+            "type": "number",
+            "example": 100
+          },
+          "discountPercentage": {
+            "type": "number",
+            "example": 25,
+            "description": "Discount percentage (can used only discountPercentage or discountAmount)",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "discountAmount": {
+            "type": "number",
+            "example": 100,
+            "description": "Discount amount (can used only discountPercentage or discountAmount)"
+          },
+          "attachmentId": {
+            "type": "string",
+            "example": null,
+            "description": "Attachment id of null"
+          }
+        },
+        "required": [
+          "invoiceNumber",
+          "invoiceCompanyId",
+          "supplierId",
+          "invoiceCompanyDetails",
+          "supplierDetails",
+          "goods",
+          "invoiceCurrency"
+        ]
+      },
+      "InvoiceGoodResp": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "BaseInvoiceGoodDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "example": "good1",
+            "description": "name of good"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "InvoiceCompaniesResp": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "BaseInvoiceCompaniesDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "example": "myCompany",
+            "description": "name of invoice company"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "AttachmentResp": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "FileUploadDto": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "File to be uploaded"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "BaseAttachmentDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "example": "myLogo1.png",
+            "description": "name of file"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "OperationsList": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "example": [
+              {
+                "id": "66f3e9f007ca6836d3afbd1e",
+                "operationId": "66f3e9f007ca6836d3afbd1e",
+                "hasPartial": true,
+                "hasCategoryPartial": true,
+                "isPartial": false,
+                "isCategoryPartial": false,
+                "date": 1727271757115,
+                "sum": 200,
+                "type": "expense",
+                "subType": "dividend",
+                "exchangeRate": 1,
+                "accountToName": "",
+                "categoryId": "66f305dc845d643553572739",
+                "accountFromName": "Bank account",
+                "accountFromId": "66f305dc845d643553572735",
+                "accountToId": "66f305dc845d643553572721",
+                "approved": true,
+                "comment": "some comment",
+                "counterpartyId": "66f3e9b114953ceae2e5f6bf",
+                "counterpartyName": "Owner 1",
+                "currencyId": "UAH",
+                "currencySymbol": "₴",
+                "dateOfPayment": 1727271757722,
+                "companyCurrencySum": 200,
+                "tagIds": [
+                  "66f3e9c8845d643553572885",
+                  "66f3e9c8845d643553572886"
+                ],
+                "tags": "tag1,tag2",
+                "projects": "project 1,project 2",
+                "projectIds": [
+                  "66f3e9eb4d98c781f16a4fe9",
+                  "66f3e9eb4d98c781f16a4fe8"
+                ],
+                "accountName": "Bank account",
+                "updatedAt": "2024-09-25T10:46:08.730Z",
+                "transactionSum": 200,
+                "transactionCurrency": "UAH",
+                "transactionCurrencyRate": 1,
+                "projectObjects": [
+                  {
+                    "stake": 51,
+                    "sum": 102,
+                    "transactionSum": 102,
+                    "companyCurrencySum": 102,
+                    "id": "66f3e9eb4d98c781f16a4fe8",
+                    "label": "project 1"
+                  },
+                  {
+                    "stake": 49,
+                    "sum": 98,
+                    "transactionSum": 98,
+                    "companyCurrencySum": 98,
+                    "id": "66f3e9eb4d98c781f16a4fe9",
+                    "label": "project 2"
+                  }
+                ],
+                "hasProjectSumError": false,
+                "hasDeletedProject": false,
+                "accountBalanceAfterOperation": -1245.56,
+                "categoryName": "Dividends",
+                "periodStartTimestamp": 1722470400000,
+                "periodEndTimestamp": 1725148799999,
+                "externalId": "5083b99b-d1f3-4793-b6e2-20168121c3c3"
+              }
+            ],
+            "description": "List of operations",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "number",
+            "description": "The number of operations in the company",
+            "example": 3845
+          }
+        },
+        "required": [
+          "list",
+          "total"
+        ]
+      },
+      "FilterLogDto": {
+        "type": "object",
+        "properties": {
+          "operationIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb34"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "projectIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb42"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "search": {
+            "type": "string"
+          },
+          "tagIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb43"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "counterpartyIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb44"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accountIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb40"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of operations in list",
+            "example": 25,
+            "default": 100
+          },
+          "offset": {
+            "type": "number"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775746044042
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1775746044042
+          },
+          "sumFrom": {
+            "type": "number",
+            "example": 121
+          },
+          "sumTo": {
+            "type": "number",
+            "example": 312
+          },
+          "desc": {
+            "type": "boolean"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc1": {
+            "type": "boolean"
+          },
+          "field1": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc2": {
+            "type": "boolean"
+          },
+          "field2": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc3": {
+            "type": "boolean"
+          },
+          "useDateOfPayment": {
+            "type": "boolean"
+          },
+          "field3": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "calculateAccountState": {
+            "type": "boolean"
+          },
+          "ids": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb3f"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "select": {
+            "type": "array",
+            "description": "Field names to return, e.g. [\"date\",\"sum\",\"type\",\"categoryName\"]",
+            "items": {
+              "type": "string",
+              "enum": [
+                "operationId",
+                "date",
+                "sum",
+                "type",
+                "exchangeRate",
+                "categoryName",
+                "accountFromName",
+                "accountName",
+                "approved",
+                "comment",
+                "counterpartyName",
+                "currencyId",
+                "dateOfPayment",
+                "companyCurrencySum",
+                "transactionSum",
+                "transactionCurrency",
+                "transactionCurrencyRate",
+                "accountBalanceAfterOperation"
+              ]
+            }
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "income",
+                "expense",
+                "transfer"
+              ]
+            }
+          },
+          "categoryIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb41"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "InvoicesList": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "example": [
+              {
+                "id": "66f3e9f007ca6836d3afbd1e",
+                "date": 1727271757115,
+                "sum": 200,
+                "exchangeRate": 1,
+                "approved": true,
+                "comment": "some comment",
+                "counterpartyId": "66f3e9b114953ceae2e5f6bf",
+                "counterpartyName": "Owner 1",
+                "currencyId": "UAH",
+                "currencySymbol": "₴",
+                "dateOfPayment": 1727271757722,
+                "companyCurrencySum": 200,
+                "updatedAt": "2024-09-25T10:46:08.730Z",
+                "transactionSum": 200,
+                "transactionCurrency": "UAH",
+                "transactionCurrencyRate": 1,
+                "externalId": "5083b99b-d1f3-4793-b6e2-20168121c3c3",
+                "invoiceCompanyId": "669df83d8ab365560ad987bd",
+                "invoiceNumber": "ExampleInvoice123456 2",
+                "invoiceCompanyDetails": "company details (IBAN)",
+                "counterpartyDetails": "counterparty details (IBAN)",
+                "withVAT": true,
+                "invoiceCurrency": "USD",
+                "shipping": 12,
+                "attachment": {
+                  "label": "MTB.png",
+                  "id": "66fff333888b8956a4ba1cbd"
+                },
+                "discountPercentage": 30,
+                "discountAmount": null,
+                "invoiceGoods": [
+                  {
+                    "price": 10.1,
+                    "count": 15,
+                    "sum": 115.5,
+                    "vat": 3,
+                    "id": "66f645aa0adf1c67df90def2",
+                    "label": "good2"
+                  },
+                  {
+                    "price": 12,
+                    "count": 12,
+                    "sum": 144,
+                    "vat": 3,
+                    "id": "669df8513299631e02d82476",
+                    "label": "послуга 1"
+                  }
+                ],
+                "confirmedInvoice": false
+              }
+            ],
+            "description": "List of operations",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "number",
+            "description": "The number of invoices in the company",
+            "example": 3845
+          }
+        },
+        "required": [
+          "list",
+          "total"
+        ]
+      },
+      "FilterInvoiceDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb45"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of operations in list",
+            "example": 25,
+            "default": 100
+          },
+          "counterpartyIds": {
+            "example": [
+              "69d7bbfc5f10c3ed05c6bb46"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "offset": {
+            "type": "number"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "startDate": {
+            "type": "number",
+            "example": 1775746044062
+          },
+          "endDate": {
+            "type": "number",
+            "example": 1775746044062
+          },
+          "desc": {
+            "type": "boolean"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc1": {
+            "type": "boolean"
+          },
+          "field1": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc2": {
+            "type": "boolean"
+          },
+          "field2": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "desc3": {
+            "type": "boolean"
+          },
+          "field3": {
+            "type": "string",
+            "enum": [
+              "date",
+              "dateOfPayment",
+              "startOfDay",
+              ""
+            ]
+          },
+          "confirmedInvoice": {
+            "type": "boolean"
+          },
+          "invoiceStatus": {
+            "type": "string",
+            "enum": [
+              "overdue",
+              "payed",
+              "notPayed",
+              "all"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

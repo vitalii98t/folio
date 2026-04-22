@@ -1,0 +1,80 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(109, 213, 237, 0.08);
+  border: 1px solid rgba(109, 213, 237, 0.25);
+  border-radius: var(--radius-lg);
+  margin: 4px 0;
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  box-shadow: 0 2px 12px rgba(109, 213, 237, 0.08);
+}
+
+.bar.danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.08);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.details {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.confirmBtn {
+  background: var(--success);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.confirmBtn:hover {
+  opacity: 0.85;
+}
+
+.rejectBtn {
+  background: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rejectBtn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
+}

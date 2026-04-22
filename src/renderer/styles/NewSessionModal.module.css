@@ -1,0 +1,127 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: overlay-in 0.2s ease-out;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  background: rgba(18, 18, 24, 0.9);
+  backdrop-filter: var(--blur-lg);
+  -webkit-backdrop-filter: var(--blur-lg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: var(--shadow-lg), var(--shadow-glass);
+  animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  letter-spacing: -0.02em;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.field span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.field input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus {
+  border-color: var(--accent);
+}
+
+.field input::placeholder {
+  color: var(--text-muted);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.cancelBtn {
+  background: none;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cancelBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.createBtn {
+  background: var(--accent-gradient);
+  border: none;
+  color: white;
+  padding: 9px 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  letter-spacing: -0.01em;
+  box-shadow: 0 2px 10px rgba(109, 213, 237, 0.3);
+}
+
+.createBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(109, 213, 237, 0.45);
+}
+
+.createBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
