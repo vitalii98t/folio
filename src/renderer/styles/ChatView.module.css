@@ -125,6 +125,18 @@
   cursor: default;
 }
 
+.newChatBtnConfirm {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+  animation: newchat-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes newchat-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+}
+
 .integrationBtn {
   background: var(--accent-gradient);
   color: white;

@@ -33,6 +33,7 @@ interface Props {
 export function ChatView({ session, onUpdateSession, highlightMessageId, onHighlightConsumed }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [pulseId, setPulseId] = useState<string | null>(null);
+  const [confirmingNewChat, setConfirmingNewChat] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<string | null>(null);
   highlightRef.current = highlightMessageId;
@@ -283,20 +284,24 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
             <span>Авто-підтвердження</span>
           </label>
           <button
-            className={styles.newChatBtn}
+            className={`${styles.newChatBtn} ${confirmingNewChat ? styles.newChatBtnConfirm : ''}`}
             onClick={async () => {
-              if (confirm('Почати новий чат? Попередня історія зникне.')) {
-                await api.newChat(session.id);
-                setMessages([]);
-                setStreamingText('');
-                setActiveTools([]);
-                setIsLoading(false);
+              if (!confirmingNewChat) {
+                setConfirmingNewChat(true);
+                setTimeout(() => setConfirmingNewChat(false), 3000);
+                return;
               }
+              setConfirmingNewChat(false);
+              await api.newChat(session.id);
+              setMessages([]);
+              setStreamingText('');
+              setActiveTools([]);
+              setIsLoading(false);
             }}
             disabled={isLoading}
-            title="Новий чат"
+            title={confirmingNewChat ? 'Історія зникне. Натисни ще раз' : 'Новий чат'}
           >
-            Новий чат
+            {confirmingNewChat ? 'Точно?' : 'Новий чат'}
           </button>
           <button className={styles.integrationBtn} onClick={startIntegration} disabled={isLoading}>
             ⚡ Інтеграція
