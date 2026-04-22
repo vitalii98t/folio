@@ -143,3 +143,25 @@
   gap: 12px;
   justify-content: center;
 }
+
+.manual {
+  margin-top: 24px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.manual summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 6px 0;
+  user-select: none;
+  text-align: center;
+}
+
+.manual summary:hover {
+  color: var(--text-secondary);
+}
+
+.manual[open] summary {
+  margin-bottom: 10px;
+}

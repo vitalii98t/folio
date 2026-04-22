@@ -115,6 +115,7 @@ export const IPC = {
   // Claude Code status
   CHECK_CLAUDE_STATUS: 'check-claude-status',
   OPEN_CLAUDE_LOGIN: 'open-claude-login',
+  INSTALL_CLAUDE_CODE: 'install-claude-code',
 
   // Sessions
   GET_SESSIONS: 'get-sessions',

@@ -1,7 +1,39 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { checkClaudeCodeStatus } from './claude-status';
+
+/** Open the OS-native terminal window and run the given command in it. */
+function openTerminalWithCommand(command: string) {
+  if (process.platform === 'darwin') {
+    // Terminal.app via osascript
+    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    spawn('osascript', [
+      '-e', 'tell application "Terminal" to activate',
+      '-e', `tell application "Terminal" to do script "${escaped}"`,
+    ], { detached: true, stdio: 'ignore' }).unref();
+  } else if (process.platform === 'win32') {
+    // Open new cmd window that stays open (/k) after the command runs
+    spawn('cmd.exe', ['/c', 'start', '""', 'cmd', '/k', command], {
+      detached: true, stdio: 'ignore', shell: false,
+    }).unref();
+  } else {
+    // Linux — try common terminal emulators
+    const terms: [string, string[]][] = [
+      ['gnome-terminal', ['--', 'bash', '-c', `${command}; exec bash`]],
+      ['konsole', ['-e', `bash -c "${command}; exec bash"`]],
+      ['xfce4-terminal', ['-x', 'bash', '-c', `${command}; exec bash`]],
+      ['xterm', ['-e', `bash -c "${command}; exec bash"`]],
+    ];
+    for (const [cmd, args] of terms) {
+      try {
+        spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+        return;
+      } catch {}
+    }
+  }
+}
 import { SessionStore } from './session-store';
 import { AgentManager } from './agent-manager';
 import { SyncScheduler } from './sync-scheduler';
@@ -110,12 +142,17 @@ function setupIPC() {
   });
 
   ipcMain.handle(IPC.OPEN_CLAUDE_LOGIN, async () => {
-    // Open terminal with claude login
-    const isWin = process.platform === 'win32';
-    if (isWin) {
-      shell.openExternal('cmd');
+    openTerminalWithCommand('claude login');
+  });
+
+  ipcMain.handle(IPC.INSTALL_CLAUDE_CODE, async () => {
+    // Platform-appropriate installer one-liner
+    if (process.platform === 'win32') {
+      openTerminalWithCommand(
+        'curl -fsSL https://claude.ai/install.cmd -o "%TEMP%\\install.cmd" && "%TEMP%\\install.cmd" && del "%TEMP%\\install.cmd"'
+      );
     } else {
-      shell.openExternal('terminal');
+      openTerminalWithCommand('curl -fsSL https://claude.ai/install.sh | sh');
     }
   });
 

@@ -32,10 +32,14 @@ function findClaudePath(): string | null {
       candidates.push(path.join(prefix, 'claude.cmd'));
     } catch {}
   } else {
+    const home = process.env.HOME || '';
     candidates.push(
-      '/usr/local/bin/claude',
+      path.join(home, '.local', 'bin', 'claude'),           // new claude.ai/install.sh default
+      '/usr/local/bin/claude',                               // Homebrew / traditional
+      '/opt/homebrew/bin/claude',                            // Homebrew on Apple Silicon
       '/usr/bin/claude',
-      path.join(process.env.HOME || '', '.npm-global', 'bin', 'claude'),
+      path.join(home, '.npm-global', 'bin', 'claude'),
+      path.join(home, '.bun', 'bin', 'claude'),              // bun install
     );
   }
 

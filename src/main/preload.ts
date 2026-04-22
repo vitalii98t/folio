@@ -6,6 +6,7 @@ const api = {
   // Claude Code
   checkClaudeStatus: () => ipcRenderer.invoke(IPC.CHECK_CLAUDE_STATUS),
   openClaudeLogin: () => ipcRenderer.invoke(IPC.OPEN_CLAUDE_LOGIN),
+  installClaudeCode: () => ipcRenderer.invoke(IPC.INSTALL_CLAUDE_CODE),
 
   // Sessions
   getSessions: () => ipcRenderer.invoke(IPC.GET_SESSIONS) as Promise<ChatSession[]>,
