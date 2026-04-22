@@ -68,10 +68,6 @@
         {
           "target": "dmg",
           "arch": ["x64", "arm64"]
-        },
-        {
-          "target": "zip",
-          "arch": ["x64", "arm64"]
         }
       ],
       "category": "public.app-category.finance",
@@ -95,7 +91,7 @@
     },
     "linux": {
       "target": [
-        "tar.gz"
+        "AppImage"
       ],
       "icon": "build/icon-512.png",
       "category": "Office",

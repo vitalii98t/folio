@@ -47,7 +47,7 @@ jobs:
 
       - name: Package Linux
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder --linux AppImage deb tar.gz
+        run: npx electron-builder --linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,20 +74,25 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: |
-            release/*.AppImage
-            release/*.deb
-            release/*.tar.gz
+          path: release/*.AppImage
           if-no-files-found: error
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS Intel artifact
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: macos-intel
           path: |
             release/*.dmg
-            release/*.zip
+            !release/*-arm64.dmg
+          if-no-files-found: error
+
+      - name: Upload macOS Apple Silicon artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: release/*-arm64.dmg
           if-no-files-found: error
 
   # On tag push — collect everything and create a GitHub Release
