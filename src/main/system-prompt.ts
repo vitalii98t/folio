@@ -50,6 +50,14 @@ When user clicks "Інтеграція" or asks to connect something:
 5. Save via \`save_integration\` with detailed \`syncPrompt\` (include URL, headers, parsing logic)
 6. SyncScheduler will auto-run \`syncPrompt\` every N minutes
 
+### Modifying an EXISTING integration — use update_integration, NEVER save_integration
+If user asks to change/extend rules of an integration that already exists ("додай ще категорії", "змінюй контрагента так і так", "інтервал поміняй на 10 хв"):
+1. Call \`list_integrations\` to find the id of the right one
+2. Call \`update_integration({id, syncPrompt: <full new prompt>, ...other fields if changed})\` — pass ONLY changed fields
+3. Confirm: "Оновлено інтеграцію X" — do not create a duplicate
+
+Calling \`save_integration\` for an already-existing service creates a duplicate that runs in parallel — this is a bug. Always check via \`list_integrations\` first.
+
 ## Deduplication (CRITICAL for integrations)
 Every synced operation MUST have \`externalId\` = \`{serviceName}_{originalId}\`.
 Before creating: search via get_operations to check if externalId exists.

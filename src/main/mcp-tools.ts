@@ -60,7 +60,7 @@ export const MUTATION_TOOLS = new Set([
   'mcp__finmap__create_invoice_company', 'mcp__finmap__update_invoice_company', 'mcp__finmap__delete_invoice_company',
   'mcp__finmap__upsert_exchange_rate', 'mcp__finmap__delete_exchange_rate',
   'mcp__finmap__create_webhook', 'mcp__finmap__update_webhook', 'mcp__finmap__delete_webhook',
-  'mcp__finmap__save_integration', 'mcp__finmap__delete_integration',
+  'mcp__finmap__save_integration', 'mcp__finmap__update_integration', 'mcp__finmap__delete_integration',
 ]);
 
 export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, sessionId?: string) {
@@ -474,6 +474,23 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
           enabled: i.enabled, interval: `${i.syncIntervalMin}min`,
           lastSync: i.lastSync ? new Date(i.lastSync).toISOString() : 'never',
         })));
+      }
+    ),
+    tool('update_integration', 'Update existing integration in place. Use this — DO NOT save_integration again — when changing rules of an integration that already exists. Pass only fields you want to change.',
+      {
+        id: z.string(),
+        serviceName: z.string().optional(),
+        serviceApiKey: z.string().optional(),
+        finmapAccountId: z.string().optional(),
+        finmapAccountName: z.string().optional(),
+        syncIntervalMin: z.number().optional(),
+        syncPrompt: z.string().optional(),
+      },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'unavailable' });
+        const { id, ...updates } = input;
+        const r = sessionStore.updateIntegration(id, updates);
+        return text(r ? { updated: true, id: r.id } : { error: 'not found' });
       }
     ),
     tool('toggle_integration', 'Enable/disable integration.',
