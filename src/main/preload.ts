@@ -85,6 +85,8 @@ const api = {
     ipcRenderer.invoke(IPC.GET_INTEGRATIONS, sessionId) as Promise<Integration[]>,
   createIntegration: (integration: Omit<Integration, 'id'>) =>
     ipcRenderer.invoke(IPC.CREATE_INTEGRATION, integration) as Promise<Integration>,
+  updateIntegration: (id: string, updates: Partial<Integration>) =>
+    ipcRenderer.invoke(IPC.UPDATE_INTEGRATION, id, updates) as Promise<Integration | null>,
   deleteIntegration: (id: string) => ipcRenderer.invoke(IPC.DELETE_INTEGRATION, id),
   toggleIntegration: (id: string) => ipcRenderer.invoke(IPC.TOGGLE_INTEGRATION, id),
 

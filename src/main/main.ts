@@ -327,6 +327,10 @@ function setupIPC() {
     return sessionStore.createIntegration(integration);
   });
 
+  ipcMain.handle(IPC.UPDATE_INTEGRATION, async (_event, id: string, updates: Partial<Integration>) => {
+    return sessionStore.updateIntegration(id, updates);
+  });
+
   ipcMain.handle(IPC.DELETE_INTEGRATION, async (_event, id: string) => {
     return sessionStore.deleteIntegration(id);
   });

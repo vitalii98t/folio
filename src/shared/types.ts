@@ -152,6 +152,7 @@ export const IPC = {
   // Integrations
   GET_INTEGRATIONS: 'get-integrations',
   CREATE_INTEGRATION: 'create-integration',
+  UPDATE_INTEGRATION: 'update-integration',
   DELETE_INTEGRATION: 'delete-integration',
   TOGGLE_INTEGRATION: 'toggle-integration',
 

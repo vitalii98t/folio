@@ -22,6 +22,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   const [newTaskPrompt, setNewTaskPrompt] = useState('');
   const [newTaskInterval, setNewTaskInterval] = useState(30);
   const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
+  const [editingIntegrationId, setEditingIntegrationId] = useState<string | null>(null);
+  const [intgForm, setIntgForm] = useState({ serviceName: '', syncIntervalMin: 30, syncPrompt: '' });
 
   const loadIntegrations = useCallback(() => {
     api.getIntegrations(session.id).then((list: Integration[]) => setIntegrations(list));
@@ -60,6 +62,32 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
 
   async function handleDelete(integration: Integration) {
     await api.deleteIntegration(integration.id);
+    loadIntegrations();
+  }
+
+  function startEditIntegration(intg: Integration) {
+    setEditingIntegrationId(intg.id);
+    setIntgForm({
+      serviceName: intg.serviceName,
+      syncIntervalMin: intg.syncIntervalMin || 30,
+      syncPrompt: intg.syncPrompt ?? '',
+    });
+  }
+
+  function cancelEditIntegration() {
+    setEditingIntegrationId(null);
+    setIntgForm({ serviceName: '', syncIntervalMin: 30, syncPrompt: '' });
+  }
+
+  async function saveEditIntegration() {
+    if (!editingIntegrationId) return;
+    if (!intgForm.serviceName.trim() || !intgForm.syncPrompt.trim()) return;
+    await api.updateIntegration(editingIntegrationId, {
+      serviceName: intgForm.serviceName.trim(),
+      syncIntervalMin: intgForm.syncIntervalMin,
+      syncPrompt: intgForm.syncPrompt.trim(),
+    });
+    cancelEditIntegration();
     loadIntegrations();
   }
 
@@ -161,7 +189,11 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
             ) : (
               <div className={notesStyles.list}>
                 {integrations.map(intg => (
-                  <div key={intg.id} className={notesStyles.row}>
+                  <div
+                    key={intg.id}
+                    className={`${notesStyles.row} ${editingIntegrationId === intg.id ? notesStyles.rowEditing : ''}`}
+                  >
+                    <div className={notesStyles.rowHeader}>
                     <div className={notesStyles.rowMain}>
                       <div className={notesStyles.rowTitle}>
                         <span className={`${notesStyles.statusDot} ${intg.enabled ? notesStyles.on : notesStyles.off}`} />
@@ -192,6 +224,17 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                       </button>
                       <button
                         type="button"
+                        className={notesStyles.editBtn}
+                        onClick={() => editingIntegrationId === intg.id ? cancelEditIntegration() : startEditIntegration(intg)}
+                        title={editingIntegrationId === intg.id ? 'Згорнути' : 'Редагувати'}
+                        aria-label="Редагувати"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
                         className={notesStyles.deleteBtn}
                         onClick={() => handleDelete(intg)}
                         title="Видалити"
@@ -204,6 +247,63 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         </svg>
                       </button>
                     </div>
+                    </div>
+                    {editingIntegrationId === intg.id && (
+                      <div className={notesStyles.editForm}>
+                        <label className={notesStyles.editLabel}>
+                          <span>Назва</span>
+                          <input
+                            type="text"
+                            value={intgForm.serviceName}
+                            onChange={e => setIntgForm(s => ({ ...s, serviceName: e.target.value }))}
+                          />
+                        </label>
+                        <label className={notesStyles.editLabel}>
+                          <span>Інструкція синхронізації (syncPrompt)</span>
+                          <textarea
+                            value={intgForm.syncPrompt}
+                            onChange={e => setIntgForm(s => ({ ...s, syncPrompt: e.target.value }))}
+                            rows={8}
+                            placeholder="Деталі для Claude: URL ендпоінту, заголовки, що парсити, як категоризувати, які поля заповнювати в Finmap (категорія, контрагент, проект, теги). Це і є те, що Claude робить при кожному синку."
+                          />
+                          <small className={notesStyles.editHint}>
+                            Тут можна додати: куди ставити <b>категорії</b>, <b>контрагентів</b>, <b>проекти</b>, <b>теги</b>; правила парсингу; формат коментаря; нюанси конкретного сервісу.
+                          </small>
+                        </label>
+                        <div className={notesStyles.editFormRow}>
+                          <label className={notesStyles.intervalLabel}>
+                            Інтервал
+                            <select
+                              value={intgForm.syncIntervalMin}
+                              onChange={e => setIntgForm(s => ({ ...s, syncIntervalMin: Number(e.target.value) }))}
+                            >
+                              <option value={5}>5 хв</option>
+                              <option value={10}>10 хв</option>
+                              <option value={15}>15 хв</option>
+                              <option value={30}>30 хв</option>
+                              <option value={60}>1 год</option>
+                              <option value={180}>3 год</option>
+                              <option value={360}>6 год</option>
+                              <option value={720}>12 год</option>
+                              <option value={1440}>1 день</option>
+                            </select>
+                          </label>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button type="button" className={styles.cancelBtn} onClick={cancelEditIntegration}>
+                              Скасувати
+                            </button>
+                            <button
+                              type="button"
+                              className={notesStyles.saveTaskBtn}
+                              onClick={saveEditIntegration}
+                              disabled={!intgForm.serviceName.trim() || !intgForm.syncPrompt.trim()}
+                            >
+                              Зберегти
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
