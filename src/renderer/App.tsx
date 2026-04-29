@@ -18,10 +18,12 @@ export function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
 
-  // Global Ctrl+K / Cmd+K to open search
+  // Global Ctrl+K / Cmd+K to open search.
+  // Use e.code (physical key) so it works regardless of keyboard layout —
+  // on Ukrainian layout pressing the K key gives e.key='к' (Cyrillic), not 'k'.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') {
         e.preventDefault();
         setShowSearch(true);
       }

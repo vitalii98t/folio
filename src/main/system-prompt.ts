@@ -62,6 +62,37 @@ Calling \`save_integration\` for an already-existing service creates a duplicate
 Every synced operation MUST have \`externalId\` = \`{serviceName}_{originalId}\`.
 Before creating: search via get_operations to check if externalId exists.
 
+## Split operations — across multiple projects OR multiple categories
+Finmap supports splitting one operation into shares across **either projects OR categories** (not both at the same time on one operation).
+
+When user says "розділи 50 на 50 між проєктами A і B" / "70% на категорію X, 30% на Y":
+- Pass \`projects: [{id, stake}, ...]\` for project split
+- Pass \`categories: [{id, stake}, ...]\` for category split
+- **Required fields: only \`id\` and \`stake\`.** Backend computes \`sum\`/\`companyCurrencySum\`/\`transactionSum\` automatically. Don't pass them unless you have a specific reason.
+- \`stake\` is percentage and MUST sum to 100 across the array
+- DO NOT also pass \`projectId\`/\`categoryId\` — those are for single-project/single-category ops
+
+Minimal example — split a payment 50/50 across two projects:
+\`\`\`
+patch_operation({
+  type: "income",
+  id: "<operationId>",
+  projects: [
+    { "id": "<proj_A_id>", "stake": 50 },
+    { "id": "<proj_B_id>", "stake": 50 }
+  ]
+})
+\`\`\`
+
+Same shape works for \`create_operation\` and for \`categories\` instead of \`projects\`.
+
+**Constraints:**
+- System categories (e.g. "без категорії" sentinels) cannot be split
+- One op = projects-split OR categories-split, never both
+- Stakes must sum to exactly 100
+
+When you read an operation back via \`get_operations\` and see \`projectObjects\` / \`projects\` field with multiple items — it's already split. Show the split clearly to the user.
+
 ## Operation fields you'll see (slim)
 - id, type, date, dateOfPayment, sum, currencyId
 - accountFromId/Name, accountToId/Name

@@ -365,7 +365,27 @@ function setupIPC() {
 
 // ── App lifecycle ─────────────────────────────────────────────
 
+/** Copy data from the legacy `vital-ai/` userData folder into the new `folio/`
+ *  one on first launch after the rename. Safe to call multiple times — only acts
+ *  if new file is missing AND old file exists. */
+function migrateLegacyData() {
+  try {
+    const newDir = app.getPath('userData');
+    const newFile = path.join(newDir, 'finmap-agent-data.json');
+    if (fs.existsSync(newFile)) return;
+    const legacyDir = path.join(path.dirname(newDir), 'vital-ai');
+    const legacyFile = path.join(legacyDir, 'finmap-agent-data.json');
+    if (!fs.existsSync(legacyFile)) return;
+    if (!fs.existsSync(newDir)) fs.mkdirSync(newDir, { recursive: true });
+    fs.copyFileSync(legacyFile, newFile);
+    console.log(`[Migration] Copied data from ${legacyDir} to ${newDir}`);
+  } catch (err) {
+    console.error('[Migration] Failed:', err);
+  }
+}
+
 app.whenReady().then(() => {
+  migrateLegacyData();
   setupIPC();
   createWindow();
 

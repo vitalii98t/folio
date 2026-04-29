@@ -279,7 +279,8 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         return text({ list: result.list.map(slimOp), total: result.total });
       }
     ),
-    tool('create_operation', 'Create income/expense/transfer.',
+    tool('create_operation',
+      'Create income/expense/transfer. For SPLIT operations across multiple projects OR multiple categories — pass projects[] OR categories[] arrays (NOT both). Each item: {id, stake, sum} where stake is percent (sum to 100) and sum is absolute amount in operation currency. System categories cannot be split.',
       {
         type: z.enum(['income', 'expense', 'transfer']),
         amount: z.number().min(0),
@@ -295,6 +296,20 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         externalId: z.string().optional(),
         exchangeRate: z.number().optional(),
         amountInCompanyCurrency: z.number().optional(),
+        projects: z.array(z.object({
+          id: z.string(),
+          stake: z.number(),
+          sum: z.number().optional(),
+          companyCurrencySum: z.number().optional(),
+          transactionSum: z.number().optional(),
+        })).optional(),
+        categories: z.array(z.object({
+          id: z.string(),
+          stake: z.number(),
+          sum: z.number().optional(),
+          companyCurrencySum: z.number().optional(),
+          transactionSum: z.number().optional(),
+        })).optional(),
       },
       async (input) => {
         const { type, ...data } = input;
@@ -302,7 +317,8 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         return text(await map[type]());
       }
     ),
-    tool('patch_operation', 'Update operation. Pass only fields to change.',
+    tool('patch_operation',
+      'Update operation. Pass only fields to change. To convert a single-project/category op into a split, pass projects[] or categories[] (mutually exclusive). System categories cannot be split.',
       {
         type: z.enum(['income', 'expense', 'transfer']),
         id: z.string(),
@@ -315,6 +331,20 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         tagIds: z.array(z.string()).optional(),
         accountToId: z.string().optional(),
         accountFromId: z.string().optional(),
+        projects: z.array(z.object({
+          id: z.string(),
+          stake: z.number(),
+          sum: z.number().optional(),
+          companyCurrencySum: z.number().optional(),
+          transactionSum: z.number().optional(),
+        })).optional(),
+        categories: z.array(z.object({
+          id: z.string(),
+          stake: z.number(),
+          sum: z.number().optional(),
+          companyCurrencySum: z.number().optional(),
+          transactionSum: z.number().optional(),
+        })).optional(),
       },
       async (input) => {
         const { type, id, ...data } = input;

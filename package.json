@@ -1,5 +1,5 @@
 {
-  "name": "vital-ai",
+  "name": "folio",
   "version": "0.1.0",
   "description": "Folio — intelligent desktop assistant for Finmap",
   "author": "vitalii98t",
@@ -48,7 +48,7 @@
     "vite": "^6.3.2"
   },
   "build": {
-    "appId": "com.vital.ai",
+    "appId": "online.finmap.folio",
     "productName": "Folio",
     "directories": {
       "output": "release"
