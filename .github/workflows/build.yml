@@ -36,26 +36,22 @@ jobs:
       - name: Regenerate icons
         run: npm run icons
 
-      # Package per platform
+      # Package per platform — never publish here; the dedicated `release` job
+      # below uploads everything once builds are done.
       - name: Package Windows
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Allow symlink creation inside winCodeSign extraction
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Package Linux
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder --linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish never
 
       - name: Package macOS
         if: matrix.os == 'macos-latest'
-        run: npx electron-builder --mac --x64 --arm64
+        run: npx electron-builder --mac --x64 --arm64 --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       # Upload artifacts to the workflow run so you can download them manually
