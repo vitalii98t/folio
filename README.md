@@ -59,6 +59,8 @@ Folio працює поверх **Claude Code CLI**. Можеш встанови
 claude login
 ```
 
+> ℹ️ Після встановлення Claude Code **перезапустіть Folio**, щоб додаток підхопив новий PATH.
+
 ### 🪟 Windows
 
 1. Завантаж `Folio Setup X.X.X.exe` з [останнього релізу](https://github.com/vitalii98t/folio/releases/latest)
