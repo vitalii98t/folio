@@ -147,6 +147,7 @@ export const IPC = {
   STREAM_TOOL_PERMISSION: 'stream-tool-permission',
   STREAM_DONE: 'stream-done',
   STREAM_ERROR: 'stream-error',
+  STREAM_AUTH_ERROR: 'stream-auth-error',
   TASK_STATUS: 'task-status',
 
   // Integrations

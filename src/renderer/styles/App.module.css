@@ -96,3 +96,132 @@
   height: 100%;
   color: var(--text-muted);
 }
+
+/* ── Auth-expired banner ── */
+.authBanner {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  width: 460px;
+  max-width: 90vw;
+  pointer-events: none;
+  animation: auth-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes auth-slide-up {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.authBannerInner {
+  pointer-events: auto;
+  background: rgba(15, 15, 22, 0.95);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-lg), 0 0 24px rgba(239, 68, 68, 0.15);
+}
+
+.authBannerInner strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fca5a5;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.authBannerInner p {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.authBannerHint {
+  font-size: 11.5px !important;
+  color: var(--text-muted) !important;
+}
+
+.authBannerHint code {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-hover);
+}
+
+.authBannerActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.authBannerLogin {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  letter-spacing: -0.005em;
+  box-shadow: 0 2px 12px rgba(109, 213, 237, 0.35);
+}
+
+.authBannerLogin:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(109, 213, 237, 0.5);
+}
+
+.authBannerCheck {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.authBannerCheck:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.authBannerCheck:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.authBannerDismiss {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.authBannerDismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

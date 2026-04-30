@@ -74,6 +74,11 @@ const api = {
     ipcRenderer.on(IPC.STREAM_ERROR, handler);
     return () => ipcRenderer.removeListener(IPC.STREAM_ERROR, handler);
   },
+  onStreamAuthError: (cb: (sessionId: string, message: string) => void) => {
+    const handler = (_e: any, sessionId: string, message: string) => cb(sessionId, message);
+    ipcRenderer.on(IPC.STREAM_AUTH_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC.STREAM_AUTH_ERROR, handler);
+  },
   onTaskStatus: (cb: (event: TaskStatusEvent) => void) => {
     const handler = (_e: any, event: TaskStatusEvent) => cb(event);
     ipcRenderer.on(IPC.TASK_STATUS, handler);

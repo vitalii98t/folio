@@ -2,7 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { checkClaudeCodeStatus } from './claude-status';
+import * as os from 'os';
+import { checkClaudeCodeStatus, getClaudePath } from './claude-status';
 
 /** Open the OS-native terminal window and run the given command in it. */
 function openTerminalWithCommand(command: string) {
@@ -14,8 +15,13 @@ function openTerminalWithCommand(command: string) {
       '-e', `tell application "Terminal" to do script "${escaped}"`,
     ], { detached: true, stdio: 'ignore' }).unref();
   } else if (process.platform === 'win32') {
-    // Open new cmd window that stays open (/k) after the command runs
-    spawn('cmd.exe', ['/c', 'start', '""', 'cmd', '/k', command], {
+    // Quoting through `cmd /c start ... cmd /k ...` is fragile (start treats
+    // the first quoted token as window title and double-escapes the rest).
+    // Write a tiny .bat file with the exact command and launch that instead —
+    // bulletproof regardless of spaces/dots in the path.
+    const batPath = path.join(os.tmpdir(), `folio-launch-${Date.now()}.bat`);
+    fs.writeFileSync(batPath, `@echo off\r\n${command}\r\necho.\r\necho [Folio] Закрий це вікно після завершення.\r\npause\r\n`);
+    spawn('cmd.exe', ['/c', 'start', '""', batPath], {
       detached: true, stdio: 'ignore', shell: false,
     }).unref();
   } else {
@@ -142,7 +148,13 @@ function setupIPC() {
   });
 
   ipcMain.handle(IPC.OPEN_CLAUDE_LOGIN, async () => {
-    openTerminalWithCommand('claude login');
+    // After a fresh install, `claude` may not be on PATH yet (Windows needs
+    // a terminal restart to pick up PATH changes). Use the resolved binary
+    // path so the new terminal can invoke it directly. Running claude with
+    // no args triggers its interactive login flow when credentials are missing.
+    const claudePath = getClaudePath();
+    const cmd = claudePath ? `"${claudePath}"` : 'claude';
+    openTerminalWithCommand(cmd);
   });
 
   ipcMain.handle(IPC.INSTALL_CLAUDE_CODE, async () => {
@@ -228,6 +240,8 @@ function setupIPC() {
         (error: string) => event.reply(IPC.STREAM_ERROR, sessionId, error),
         (toolName: string, input: Record<string, unknown>) =>
           event.reply(IPC.STREAM_TOOL_PERMISSION, sessionId, toolName, input),
+        undefined,
+        (authMsg: string) => event.reply(IPC.STREAM_AUTH_ERROR, sessionId, authMsg),
       );
     } catch (err: any) {
       event.reply(IPC.STREAM_ERROR, sessionId, err.message ?? 'Unknown error');
@@ -312,6 +326,8 @@ function setupIPC() {
         (error: string) => event.reply(IPC.STREAM_ERROR, sessionId, error),
         (toolName: string, input: Record<string, unknown>) =>
           event.reply(IPC.STREAM_TOOL_PERMISSION, sessionId, toolName, input),
+        undefined,
+        (authMsg: string) => event.reply(IPC.STREAM_AUTH_ERROR, sessionId, authMsg),
       );
     } catch (err: any) {
       event.reply(IPC.STREAM_ERROR, sessionId, err.message ?? 'Unknown error');

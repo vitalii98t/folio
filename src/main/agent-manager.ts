@@ -1,7 +1,7 @@
 import { FinmapAPI } from './finmap-api';
 import { buildFinmapMcpServer, MUTATION_TOOLS } from './mcp-tools';
 import { SYSTEM_PROMPT } from './system-prompt';
-import { getClaudePath } from './claude-status';
+import { getClaudePath, isAuthError } from './claude-status';
 import type { SessionStore } from './session-store';
 import type { ChatSession } from '../shared/types';
 
@@ -151,6 +151,9 @@ export class AgentManager {
     /** Force auto-approve of all mutations regardless of session toggle.
      *  Used for scheduled tasks which have no UI to confirm. */
     forceAutoApprove?: boolean,
+    /** Called when Claude SDK reports an auth/expired-token error so the UI
+     *  can prompt the user to re-login without losing chat context. */
+    onAuthError?: (message: string) => void,
   ) {
     const active = this.getOrCreate(session);
     const abortController = new AbortController();
@@ -247,6 +250,14 @@ export class AgentManager {
             if (message.subtype === 'success' && !fullResponse) {
               fullResponse = message.result;
               onChunk(message.result);
+            } else if (message.subtype !== 'success') {
+              const text = (message as any).result ?? `Claude returned subtype=${message.subtype}`;
+              if (isAuthError(text)) {
+                onAuthError?.(text);
+                return;
+              }
+              onError(text);
+              return;
             }
             break;
           }
@@ -256,7 +267,12 @@ export class AgentManager {
       onDone(fullResponse);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      onError(err.message ?? 'Unknown error');
+      const msg = err.message ?? 'Unknown error';
+      if (isAuthError(msg)) {
+        onAuthError?.(msg);
+        return;
+      }
+      onError(msg);
     } finally {
       active.abortController = null;
     }

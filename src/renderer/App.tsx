@@ -17,6 +17,26 @@ export function App() {
   const [showNewSession, setShowNewSession] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [reAuthChecking, setReAuthChecking] = useState(false);
+
+  // Listen to runtime auth-error events from main — Claude SDK 401/403/expired
+  useEffect(() => {
+    const unsub = api.onStreamAuthError((_sid: string, message: string) => {
+      setAuthError(message);
+    });
+    return unsub;
+  }, []);
+
+  async function recheckAuth() {
+    setReAuthChecking(true);
+    const status = await api.checkClaudeStatus();
+    setReAuthChecking(false);
+    if (status === 'ready') {
+      setAuthError(null);
+      setClaudeStatus('ready');
+    }
+  }
 
   // Global Ctrl+K / Cmd+K to open search.
   // Use e.code (physical key) so it works regardless of keyboard layout —
@@ -157,6 +177,40 @@ export function App() {
       )}
 
       <TaskToasts />
+
+      {authError && (
+        <div className={styles.authBanner}>
+          <div className={styles.authBannerInner}>
+            <strong>Сесія Claude Code закінчилась</strong>
+            <p>{authError}</p>
+            <p className={styles.authBannerHint}>
+              Натисни <b>Увійти</b> — відкриється термінал з командою <code>claude login</code>. Після успішної авторизації натисни <b>Перевірити</b>.
+            </p>
+            <div className={styles.authBannerActions}>
+              <button
+                className={styles.authBannerLogin}
+                onClick={() => api.openClaudeLogin()}
+              >
+                Увійти у Claude
+              </button>
+              <button
+                className={styles.authBannerCheck}
+                onClick={recheckAuth}
+                disabled={reAuthChecking}
+              >
+                {reAuthChecking ? 'Перевіряю…' : 'Перевірити'}
+              </button>
+              <button
+                className={styles.authBannerDismiss}
+                onClick={() => setAuthError(null)}
+                title="Закрити"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

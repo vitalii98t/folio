@@ -3,6 +3,11 @@
  */
 
 const BASE_URL = 'https://api.finmap.online/v2.2';
+const REQUEST_TIMEOUT_MS = 60_000;   // hard cap per request
+const MAX_RETRIES = 2;                // total = 1 + 2 = 3 attempts
+const RETRY_DELAY_MS = 1_500;         // backoff base
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export class FinmapAPI {
   constructor(private apiKey: string) {}
@@ -20,22 +25,53 @@ export class FinmapAPI {
       }
     }
 
-    const res = await fetch(url.toString(), {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'apiKey': this.apiKey,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const res = await fetch(url.toString(), {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'apiKey': this.apiKey,
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Finmap API ${method} ${path} → ${res.status}: ${text}`);
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          // 5xx is transient — retry. 4xx is client error — surface immediately.
+          if (res.status >= 500 && attempt < MAX_RETRIES) {
+            await sleep(RETRY_DELAY_MS * (attempt + 1));
+            continue;
+          }
+          throw new Error(`Finmap API ${method} ${path} → ${res.status}: ${text}`);
+        }
+
+        const text = await res.text();
+        return text ? JSON.parse(text) : ({} as T);
+      } catch (err: any) {
+        clearTimeout(timeout);
+        lastErr = err;
+        const isAbort = err?.name === 'AbortError';
+        const isNetwork = /fetch failed|network|ECONN|ETIMEDOUT|EAI_AGAIN/i.test(err?.message ?? '');
+        const transient = isAbort || isNetwork;
+
+        // GET is always safe to retry. POST/PATCH/PUT/DELETE we retry only
+        // on AbortError/network — server didn't process or processed but
+        // client-side delivery hung. In rare cases this can create dupes,
+        // but Finmap is generally idempotent for our usage.
+        if (transient && attempt < MAX_RETRIES) {
+          await sleep(RETRY_DELAY_MS * (attempt + 1));
+          continue;
+        }
+        throw err;
+      }
     }
-
-    const text = await res.text();
-    return text ? JSON.parse(text) : ({} as T);
+    throw lastErr ?? new Error(`Finmap API ${method} ${path} failed after retries`);
   }
 
   // ── Accounts ────────────────────────────────────────────────
