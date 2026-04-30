@@ -60,7 +60,9 @@ export async function parseFileToText(filePath: string): Promise<string | null> 
   // PDF
   if (ext === '.pdf') {
     try {
-      const pdfParse = (await import('pdf-parse')).default;
+      // Import the lib subpath directly — pdf-parse's index.js has a debug
+      // mode that tries to read a test PDF on import, which fails in production.
+      const pdfParse = (await import('pdf-parse/lib/pdf-parse.js' as any)).default;
       const buffer = fs.readFileSync(filePath);
       const data = await pdfParse(buffer);
       const text = data.text || '';
