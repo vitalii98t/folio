@@ -15,13 +15,16 @@ function openTerminalWithCommand(command: string) {
       '-e', `tell application "Terminal" to do script "${escaped}"`,
     ], { detached: true, stdio: 'ignore' }).unref();
   } else if (process.platform === 'win32') {
-    // Quoting through `cmd /c start ... cmd /k ...` is fragile (start treats
-    // the first quoted token as window title and double-escapes the rest).
-    // Write a tiny .bat file with the exact command and launch that instead —
-    // bulletproof regardless of spaces/dots in the path.
+    // On Win11 with Windows Terminal as default, `start "" path.bat` opens an
+    // empty wt host without ever invoking cmd to run the .bat. The reliable
+    // structure is `start "" cmd /k <bat>` — start opens the window, cmd /k
+    // runs the bat and stays at a prompt. The .bat itself wraps the command
+    // so we don't have to escape long quoted strings on the command line.
     const batPath = path.join(os.tmpdir(), `folio-launch-${Date.now()}.bat`);
-    fs.writeFileSync(batPath, `@echo off\r\n${command}\r\necho.\r\necho [Folio] Закрий це вікно після завершення.\r\npause\r\n`);
-    spawn('cmd.exe', ['/c', 'start', '""', batPath], {
+    const batBody =
+      `@echo off\r\nchcp 65001 >nul\r\n${command}\r\nset _ec=%ERRORLEVEL%\r\necho.\r\nif not "%_ec%"=="0" echo [Folio] Команда завершилась з кодом %_ec%.\r\necho [Folio] Готово. Можеш закривати вікно.\r\n`;
+    fs.writeFileSync(batPath, batBody);
+    spawn('cmd.exe', ['/c', 'start', '""', 'cmd', '/k', batPath], {
       detached: true, stdio: 'ignore', shell: false,
     }).unref();
   } else {
@@ -158,11 +161,19 @@ function setupIPC() {
   });
 
   ipcMain.handle(IPC.INSTALL_CLAUDE_CODE, async () => {
-    // Platform-appropriate installer one-liner
     if (process.platform === 'win32') {
-      openTerminalWithCommand(
-        'curl -fsSL https://claude.ai/install.cmd -o "%TEMP%\\install.cmd" && "%TEMP%\\install.cmd" && del "%TEMP%\\install.cmd"'
-      );
+      // Multi-line script — easier to follow in the terminal than one mega &&-chain,
+      // and lets us bail out early with a clear message if curl fails.
+      const cmds = [
+        'echo [Folio] Завантажую інсталятор Claude Code...',
+        'curl -fsSL https://claude.ai/install.cmd -o "%TEMP%\\claude-install.cmd"',
+        'if errorlevel 1 (echo [Folio] Не вдалося завантажити інсталятор. Перевір підключення до інтернету. && goto :end)',
+        'echo [Folio] Запускаю інсталятор...',
+        'call "%TEMP%\\claude-install.cmd"',
+        'del "%TEMP%\\claude-install.cmd" 2>nul',
+        ':end',
+      ].join('\r\n');
+      openTerminalWithCommand(cmds);
     } else {
       openTerminalWithCommand('curl -fsSL https://claude.ai/install.sh | sh');
     }
