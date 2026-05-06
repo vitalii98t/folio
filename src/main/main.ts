@@ -46,6 +46,7 @@ function openTerminalWithCommand(command: string) {
 import { SessionStore } from './session-store';
 import { AgentManager } from './agent-manager';
 import { SyncScheduler } from './sync-scheduler';
+import { installBundledSkills } from './skills-installer';
 import { parseFileToText } from './file-parser';
 import { IPC } from '../shared/types';
 import type { ChatSession, Integration, ScheduledTask } from '../shared/types';
@@ -413,6 +414,13 @@ function migrateLegacyData() {
 
 app.whenReady().then(() => {
   migrateLegacyData();
+
+  // Install bundled skills into a stable workspace dir, then point the agent
+  // at it as cwd — Claude Code auto-discovers `.claude/skills/` from cwd.
+  const { cwd: workspaceCwd, installed } = installBundledSkills();
+  agentManager.setWorkspaceCwd(workspaceCwd);
+  console.log(`[Folio] Workspace ready at ${workspaceCwd} (${installed} skill(s))`);
+
   setupIPC();
   createWindow();
 

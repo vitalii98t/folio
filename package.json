@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Folio — intelligent desktop assistant for Finmap",
   "author": "vitalii98t",
   "homepage": "https://finmap.online",
@@ -58,6 +58,13 @@
       "build/icon*.png",
       "build/icon.ico",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/skills",
+        "to": "skills",
+        "filter": ["**/*"]
+      }
     ],
     "asarUnpack": [
       "node_modules/@anthropic-ai/claude-code/**/*",

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { FinmapAPI } from './finmap-api';
+import { reconcile } from './reconcile-matcher';
 
 let _sdk: typeof import('@anthropic-ai/claude-code') | null = null;
 async function getSDK() {
@@ -63,6 +64,44 @@ export const MUTATION_TOOLS = new Set([
   'mcp__finmap__save_integration', 'mcp__finmap__update_integration', 'mcp__finmap__delete_integration',
 ]);
 
+/**
+ * Fetch all Finmap operations matching filters, transparently paginating
+ * across the API's 100-per-page limit. Capped at 25 pages (2500 ops) so a
+ * malformed query can't hammer Finmap; reconciliation windows are typically
+ * a few days on one account, where this is overkill.
+ */
+async function fetchAllOperationsPaginated(api: FinmapAPI, filters: Record<string, unknown>) {
+  const PAGE = 100;
+  const MAX_PAGES = 25;
+  const all: any[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const result = await api.getOperations({ ...filters, limit: PAGE, offset: page * PAGE });
+    const list = (result?.list ?? []) as any[];
+    all.push(...list);
+    if (list.length < PAGE) break;
+  }
+  return all;
+}
+
+/**
+ * Derive signed amount from a Finmap operation for matcher consumption:
+ *   income → +sum
+ *   expense → −sum
+ *   transfer → sign depends on whether the queried account is source (−) or
+ *              destination (+); ambiguous cross-account transfers fall back
+ *              to +sum so the user can spot them in the matcher's "extra" group.
+ */
+function toSignedAmount(op: any, queryAccountIds: string[]): number {
+  const sum = Number(op?.sum) || 0;
+  if (op?.type === 'income') return sum;
+  if (op?.type === 'expense') return -sum;
+  if (op?.type === 'transfer') {
+    if (op.accountFromId && queryAccountIds.includes(op.accountFromId)) return -sum;
+    if (op.accountToId && queryAccountIds.includes(op.accountToId)) return sum;
+  }
+  return sum;
+}
+
 export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, sessionId?: string) {
   const { tool, createSdkMcpServer } = await getSDK();
 
@@ -92,6 +131,87 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
           return text({ status: res.status, body: parsed ?? truncated });
         } catch (err: any) {
           return text({ error: err.message });
+        }
+      }
+    ),
+
+    // ── Reconciliation (deterministic matcher used by reconcile-statement skill) ──
+    //
+    // Two ways to call:
+    //
+    //   (A) PREFERRED — pass bank + accountIds + startDate + endDate.
+    //       Tool fetches Finmap operations internally (paginated, signed-amount
+    //       derived from type+accountFromId/accountToId), runs matcher, returns
+    //       result. Claude only has to format the bank array — saves ~50% of
+    //       arg-formatting time on big statements.
+    //
+    //   (B) Fallback — pass bank + finmap (both arrays). Use only when caller
+    //       already has Finmap ops in hand (e.g., from a prior get_operations
+    //       call) and wants to reuse them without refetching.
+    tool('reconcile_match',
+      'Match bank statement operations against Finmap operations using a 3-pass deterministic algorithm. ' +
+      'Returns 5 groups: matched, matchedSplit, candidateMismatchDate, missingInFinmap, extraInFinmap. ' +
+      'PREFERRED CALL: pass bank + accountIds + startDate + endDate — tool fetches Finmap side itself (much cheaper to format than two arrays). ' +
+      'FALLBACK: pass bank + finmap arrays directly. ' +
+      'Use ONLY through the reconcile-statement skill.',
+      {
+        bank: z.array(z.object({
+          id: z.string(),
+          date: z.string().describe('YYYY-MM-DD'),
+          amount: z.number().describe('Signed: expense negative, income positive'),
+          description: z.string().optional(),
+        })).min(1),
+        // Provide either finmap OR accountIds+dates — if both, finmap wins.
+        finmap: z.array(z.object({
+          id: z.string(),
+          date: z.string(),
+          amount: z.number(),
+          counterparty: z.string().optional(),
+          category: z.string().optional(),
+        })).optional(),
+        accountIds: z.array(z.string()).optional(),
+        startDate: z.number().optional().describe('Unix ms — start of period to fetch from Finmap'),
+        endDate: z.number().optional().describe('Unix ms — end of period to fetch from Finmap'),
+        options: z.object({
+          dateToleranceDays: z.number().optional(),
+          splitWindowDays: z.number().optional(),
+          maxSplitSize: z.number().optional(),
+          amountEpsilon: z.number().optional(),
+          dateMismatchMaxDays: z.number().optional(),
+        }).optional(),
+      },
+      async (input) => {
+        try {
+          let finmapOps = input.finmap;
+
+          // Path A: caller passed accountIds + dates → fetch internally
+          if (!finmapOps) {
+            if (!input.accountIds || input.accountIds.length === 0
+                || input.startDate === undefined || input.endDate === undefined) {
+              return text({
+                error: 'Pass either `finmap` array OR `accountIds + startDate + endDate` so we can fetch Finmap operations.',
+              });
+            }
+            const fetched = await fetchAllOperationsPaginated(api, {
+              accountIds: input.accountIds,
+              startDate: input.startDate,
+              endDate: input.endDate,
+            });
+            finmapOps = fetched.map(op => ({
+              id: op.id,
+              date: typeof op.date === 'number'
+                ? new Date(op.date).toISOString().slice(0, 10)
+                : String(op.date).slice(0, 10),
+              amount: toSignedAmount(op, input.accountIds!),
+              counterparty: op.counterpartyName,
+              category: op.categoryName,
+            }));
+          }
+
+          const result = reconcile(input.bank, finmapOps, input.options ?? {});
+          return text(result);
+        } catch (err: any) {
+          return text({ error: err?.message ?? 'reconcile_match failed' });
         }
       }
     ),
@@ -249,7 +369,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
     ),
 
     // ── Operations ──
-    tool('get_operations', 'Search operations with filters. Returns slim list (id, type, sum, date, accounts, category, counterparty, projects, tags, comment).',
+    tool('get_operations', 'Search operations with filters. Returns slim list. limit MUST be ≤100 (Finmap server-side cap) — for more, use offset to paginate.',
       {
         accountIds: z.array(z.string()).optional(),
         categoryIds: z.array(z.string()).optional(),
@@ -263,8 +383,8 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         sumFrom: z.number().optional(),
         sumTo: z.number().optional(),
         approved: z.boolean().optional(),
-        limit: z.number().optional().default(50),
-        offset: z.number().optional().default(0),
+        limit: z.number().int().min(1).max(100).optional().default(50),
+        offset: z.number().int().min(0).optional().default(0),
         desc: z.boolean().optional().default(true),
       },
       async (input) => {
@@ -277,6 +397,84 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       async (input) => {
         const result = await api.getOperationDetails(input);
         return text({ list: result.list.map(slimOp), total: result.total });
+      }
+    ),
+
+    // Batch dedup helper — used by mass-import, integration-setup and sync
+    // flows. ONE POST /operations/list call covers the whole sync window,
+    // then we filter by externalId in code. Deterministic, no risk of Claude
+    // mis-counting in its head.
+    //
+    // accountIds + a date range are REQUIRED by design — without them we'd
+    // either have to scan the entire account history (slow, doesn't scale) or
+    // fall back to per-ID lookups (1000 ops = 1000 requests, that's the bug
+    // we're fixing). Making the params mandatory forces Claude to think about
+    // the dedup window upfront.
+    //
+    // Internally we paginate up to MAX_PAGES × pageLimit ops, but typical sync
+    // windows (24-48h on one account) fit in one page.
+    tool('check_externalIds',
+      'Batch-check which externalIds already exist as Finmap operations. Use BEFORE batch create_operation to dedupe. ' +
+      'Does ONE Finmap list call internally and filters in code — handles 100s of IDs with a single API hit. ' +
+      'REQUIRED: pass accountIds + startDate + endDate covering the window when those externalIds would have been created (e.g., for a 24h sync use the last 26h). ' +
+      'Returns {existing: [...skip these...], missing: [...safe to create...], scannedOps, totalInWindow, warning?}.',
+      {
+        externalIds: z.array(z.string()).min(1).max(500),
+        accountIds: z.array(z.string()).min(1),
+        startDate: z.number(),
+        endDate: z.number(),
+      },
+      async (input) => {
+        const wanted = new Set(input.externalIds);
+        const found = new Set<string>();
+
+        // Finmap caps `limit` at 100 per /operations/list call (anything
+        // higher → 400 "limit must not be greater than 100"). MAX_PAGES is
+        // sized so we still cover up to 2500 ops if needed — typical sync
+        // windows on one account fit in one page.
+        const PAGE_LIMIT = 100;
+        const MAX_PAGES = 25;
+        let scanned = 0;
+        let total = 0;
+        let offset = 0;
+        let warning: string | undefined;
+
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const result = await api.getOperations({
+            accountIds: input.accountIds,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            limit: PAGE_LIMIT,
+            offset,
+          });
+          const list = (result?.list ?? []) as any[];
+          total = typeof result?.total === 'number' ? result.total : (scanned + list.length);
+          scanned += list.length;
+          for (const op of list) {
+            if (typeof op?.externalId === 'string' && wanted.has(op.externalId)) {
+              found.add(op.externalId);
+            }
+          }
+          if (list.length < PAGE_LIMIT) break;          // got the tail
+          if (found.size >= wanted.size) break;          // already matched everything wanted
+          offset += PAGE_LIMIT;
+          if (page === MAX_PAGES - 1 && scanned < total) {
+            warning =
+              `Scanned ${scanned} of ${total} operations in window; pagination capped at ${MAX_PAGES * PAGE_LIMIT}. ` +
+              `Some externalIds in "missing" might actually exist beyond the scanned range — narrow the date window or split the batch.`;
+          }
+        }
+
+        const existing = Array.from(found);
+        const missing = input.externalIds.filter(eid => !found.has(eid));
+        return text({
+          existing,
+          missing,
+          checked: input.externalIds.length,
+          scannedOps: scanned,
+          totalInWindow: total,
+          ...(warning ? { warning } : {}),
+        });
       }
     ),
     tool('create_operation',

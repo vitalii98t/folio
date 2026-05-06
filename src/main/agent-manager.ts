@@ -1,6 +1,6 @@
 import { FinmapAPI } from './finmap-api';
 import { buildFinmapMcpServer, MUTATION_TOOLS } from './mcp-tools';
-import { SYSTEM_PROMPT } from './system-prompt';
+import { SYSTEM_PROMPT, BACKGROUND_SYSTEM_PROMPT } from './system-prompt';
 import { getClaudePath, isAuthError } from './claude-status';
 import type { SessionStore } from './session-store';
 import type { ChatSession } from '../shared/types';
@@ -28,6 +28,13 @@ interface ActiveSession {
 // Read-only tools — SDK auto-approves these via --allowedTools flag (canUseTool skipped).
 // Mutations are intentionally NOT listed here, so canUseTool fires and we can prompt the user.
 const ALLOWED_TOOLS = [
+  // Built-in Claude Code tools needed for skill discovery & loading.
+  // `Read` lets Claude pull SKILL.md and supporting reference files when a
+  // task matches a skill's description. `Glob` lets it list available skills.
+  'Read',
+  'Glob',
+
+  // Finmap MCP tools (read-only)
   'mcp__finmap__http_request',
   'mcp__finmap__get_accounts',
   'mcp__finmap__get_currencies',
@@ -38,6 +45,7 @@ const ALLOWED_TOOLS = [
   'mcp__finmap__get_counterparties',
   'mcp__finmap__get_operations',
   'mcp__finmap__get_operation_details',
+  'mcp__finmap__check_externalIds',
   'mcp__finmap__get_invoices',
   'mcp__finmap__get_invoice_details',
   'mcp__finmap__get_invoice_goods',
@@ -45,6 +53,10 @@ const ALLOWED_TOOLS = [
   'mcp__finmap__get_webhooks',
   'mcp__finmap__list_integrations',
   'mcp__finmap__toggle_integration',
+
+  // Pure computation — deterministic matcher used by reconcile-statement skill.
+  // Read-only; no API side effects.
+  'mcp__finmap__reconcile_match',
 ];
 
 /**
@@ -53,9 +65,19 @@ const ALLOWED_TOOLS = [
 export class AgentManager {
   private sessions = new Map<string, ActiveSession>();
   private sessionStore: SessionStore;
+  /**
+   * Working directory we hand to the Claude Agent SDK. Set by main on startup
+   * to a workspace dir that contains `.claude/skills/` so Claude Code can
+   * auto-discover Folio's bundled skills. Defaults to process.cwd() until set.
+   */
+  private workspaceCwd: string = process.cwd();
 
   constructor(sessionStore: SessionStore) {
     this.sessionStore = sessionStore;
+  }
+
+  setWorkspaceCwd(cwd: string) {
+    this.workspaceCwd = cwd;
   }
 
   private getOrCreate(session: ChatSession): ActiveSession {
@@ -187,18 +209,23 @@ export class AgentManager {
 
       const claudePath = getClaudePath() || undefined;
 
-      // Append per-company notes to the system prompt so Claude picks up
-      // user-specific context (e.g. account conventions, accounting rules).
+      // Background runs (scheduled tasks, integration auto-syncs) get a lean
+      // prompt without the skills section — they're driven by their own
+      // detailed syncPrompt/task.prompt and don't need the skill-discovery
+      // overhead. Interactive sessions use the full prompt with skills.
+      const basePrompt = forceAutoApprove ? BACKGROUND_SYSTEM_PROMPT : SYSTEM_PROMPT;
       const systemPrompt = session.notes?.trim()
-        ? `${SYSTEM_PROMPT}\n\n## Company context (from user)\n${session.notes.trim()}`
-        : SYSTEM_PROMPT;
+        ? `${basePrompt}\n\n## Company context (from user)\n${session.notes.trim()}`
+        : basePrompt;
 
       const options: import('@anthropic-ai/claude-code').Options = {
         customSystemPrompt: systemPrompt,
         maxTurns: 20,
         abortController,
         canUseTool,
-        cwd: process.cwd(),
+        // Use Folio's workspace dir so Claude Code auto-discovers our skills
+        // from `<cwd>/.claude/skills/`.
+        cwd: this.workspaceCwd,
         pathToClaudeCodeExecutable: claudePath,
         mcpServers: { finmap: active.mcpServer },
         allowedTools: ALLOWED_TOOLS,
@@ -233,10 +260,9 @@ export class AgentManager {
                   fullResponse += (block as any).text;
                   onChunk((block as any).text);
                 } else if (block.type === 'tool_use' && 'name' in block) {
-                  // Display activity for every tool Claude decides to call
-                  // (read-only auto-run via allowedTools; mutations pass through canUseTool).
+                  const toolName = (block as any).name as string;
                   const toolInput = ('input' in block ? (block as any).input : {}) as Record<string, unknown>;
-                  onToolCall((block as any).name, toolInput);
+                  onToolCall(toolName, toolInput);
                 }
               }
             }
