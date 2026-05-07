@@ -60,7 +60,7 @@ export function Sidebar({ sessions, activeSessionId, onSelect, onNew, onDelete, 
         <span className={styles.author}>
           created by <strong>vitalii98t</strong>
         </span>
-        <span className={styles.version}>v0.1.6</span>
+        <span className={styles.version}>v0.1.7</span>
       </div>
     </aside>
   );
