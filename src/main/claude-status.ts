@@ -76,9 +76,21 @@ export function getClaudePath(): string | null {
   return _claudePath;
 }
 
-/** Heuristically check if Claude Code is logged in by inspecting `~/.claude/`.
- *  Looks for any of the credential files Claude CLI is known to write. */
+/** Heuristically check if Claude Code is logged in.
+ *
+ * On Linux/Windows the CLI writes a credentials file under `~/.claude/`.
+ * On macOS the CLI stores tokens in the system **Keychain** instead — there's
+ * no file to detect, and querying Keychain directly would either prompt the
+ * user with a permission dialog or require entitlements we don't have.
+ *
+ * Strategy: on macOS, optimistically assume credentials are present (the
+ * agent-manager already handles `isAuthError` from the SDK on the first real
+ * message and surfaces a friendly re-login prompt — far better than blocking
+ * a fully-authenticated user at the setup screen). On other platforms we
+ * keep the file-based heuristic. */
 function hasClaudeCredentials(): boolean {
+  if (process.platform === 'darwin') return true;
+
   const home = process.env.HOME || process.env.USERPROFILE || '';
   if (!home) return false;
   const candidates = [
