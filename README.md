@@ -81,13 +81,31 @@ claude login
 
 > Не знаєш який? Меню `` → `About This Mac` → "Chip: Apple M..." це Apple Silicon.
 
+> ⚠️ **Folio поки не підписаний Apple Developer ID** — без кроку 2 нижче macOS Gatekeeper покаже *"Folio is damaged and can't be opened"*. Це не баг — так macOS поводиться з усіма непідписаними додатками з інтернету.
+
 1. Завантаж `.dmg` з [релізу](https://github.com/vitalii98t/folio/releases/latest)
-2. Двічі клікни → перетягни **Folio** у `Applications`
-3. **Перший запуск:** через відсутність Apple Developer ID треба зняти quarantine. У Terminal:
+2. **ПЕРЕД відкриттям .dmg** — у Terminal зніми quarantine:
    ```bash
-   xattr -cr /Applications/Folio.app
+   xattr -cr ~/Downloads/Folio-*.dmg
    ```
-4. Запускай з Applications
+   Один раз, до перетягування. Це робить `.dmg` "довіреним" і Folio.app всередині не успадкує quarantine.
+3. Тепер відкрий .dmg і перетягни **Folio** у `Applications` — як зазвичай.
+4. Запускай з Applications.
+
+<details>
+<summary>🩹 Якщо вже встановив без Кроку 2 і отримав "is damaged"</summary>
+
+Знімай quarantine з самого .app:
+```bash
+xattr -cr /Applications/Folio.app
+```
+
+Якщо все одно не запускається (буває на macOS Sequoia зі строгішими політиками):
+1. Спробуй ще раз відкрити Folio (зʼявиться помилка)
+2. **System Settings → Privacy & Security**
+3. Прокрути донизу, знайди *"Folio was blocked from use"* → натисни **"Open Anyway"**
+
+</details>
 
 > **Дані:** `~/Library/Application Support/folio/`
 
