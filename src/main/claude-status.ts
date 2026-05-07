@@ -4,17 +4,35 @@ import * as path from 'path';
 import type { ClaudeCodeStatus } from '../shared/types';
 
 /**
- * Find the claude CLI executable.
- * Electron inherits a limited PATH, so we check common locations.
+ * Find the claude CLI executable. We always return an ABSOLUTE PATH because
+ * the Claude Code SDK passes `pathToClaudeCodeExecutable` to a child-process
+ * spawn that doesn't do PATH lookup — handing it a bare `"claude"` makes the
+ * SDK throw "Claude Code native binary not found at claude" even when the
+ * binary works fine from the terminal.
+ *
+ * Resolution order:
+ *   1. `where claude` / `which claude` — picks up wherever the user's shell
+ *      finds it (covers any custom install location they've put on PATH).
+ *   2. Common known install dirs (claude.ai/install.{cmd,sh} default,
+ *      Homebrew, npm-global, bun) — fallback when Electron's inherited PATH
+ *      doesn't include the user's `~/.local/bin` etc.
+ *   3. `npm prefix -g` derived path — for npm-installed builds.
  */
 function findClaudePath(): string | null {
-  // 1. Try PATH directly
+  // 1. Resolve absolute path via `where`/`which`
+  const lookupCmd = process.platform === 'win32' ? 'where claude' : 'which claude';
   try {
-    execSync('claude --version', { stdio: 'pipe', timeout: 5000 });
-    return 'claude';
+    const out = execSync(lookupCmd, { stdio: 'pipe', timeout: 5000, encoding: 'utf-8' }).trim();
+    // `where` on Windows can return multiple paths separated by newlines —
+    // take the first one that exists and looks like an executable, not a
+    // shim/symlink we can't actually run from a different cwd.
+    const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (line && fs.existsSync(line)) return line;
+    }
   } catch {}
 
-  // 2. Common npm global install locations
+  // 2. Common install locations (absolute paths)
   const candidates: string[] = [];
 
   if (process.platform === 'win32') {
@@ -26,7 +44,6 @@ function findClaudePath(): string | null {
       path.join(userProfile, '.npm-global', 'claude.cmd'),
       'C:\\Program Files\\nodejs\\claude.cmd',
     );
-    // Try npm prefix -g
     try {
       const prefix = execSync('npm prefix -g', { stdio: 'pipe', timeout: 5000, encoding: 'utf-8' }).trim();
       candidates.push(path.join(prefix, 'claude.cmd'));
@@ -34,12 +51,12 @@ function findClaudePath(): string | null {
   } else {
     const home = process.env.HOME || '';
     candidates.push(
-      path.join(home, '.local', 'bin', 'claude'),           // new claude.ai/install.sh default
-      '/usr/local/bin/claude',                               // Homebrew / traditional
-      '/opt/homebrew/bin/claude',                            // Homebrew on Apple Silicon
+      path.join(home, '.local', 'bin', 'claude'),
+      '/usr/local/bin/claude',
+      '/opt/homebrew/bin/claude',
       '/usr/bin/claude',
       path.join(home, '.npm-global', 'bin', 'claude'),
-      path.join(home, '.bun', 'bin', 'claude'),              // bun install
+      path.join(home, '.bun', 'bin', 'claude'),
     );
   }
 
