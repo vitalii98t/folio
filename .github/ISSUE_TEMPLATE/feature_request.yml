@@ -1,0 +1,57 @@
+name: ✨ Feature request
+description: Пропозиція нової фічі або покращення
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Класно що в тебе є ідея — давай розберемо. Найкорисніші feature requests описують **проблему**, а не одразу рішення.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Яку проблему це вирішує?
+      description: Опиши кейс — коли і чому це треба
+      placeholder: |
+        Я щодня вантажу виписку з ПриватБанку як CSV. Хочу щоб Folio це робив сам
+        автоматично без моєї участі — зараз треба руками клацати "Імпортувати".
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Як це могло б працювати? (опційно)
+      description: Якщо є ідея реалізації — опиши
+      placeholder: |
+        Може налаштовувати webhook на ПриватБанк → Folio ловить → парсить → створює операції
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Що ти пробував натомість? (опційно)
+      description: Якщо є workaround який ти використовуєш зараз — поділись
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Наскільки це для тебе важливо?
+      options:
+        - "Без цього не можу нормально працювати"
+        - "Дуже б полегшило, але можу і без"
+        - "Прикольно було б, але не критично"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Підтвердження
+      options:
+        - label: Я перевірив що такої feature request ще немає у відкритих issues
+          required: true

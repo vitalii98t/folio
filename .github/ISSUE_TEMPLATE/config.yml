@@ -1,0 +1,6 @@
+# Disable blank issues — forces users to pick a template so we get structured info
+blank_issues_enabled: false
+contact_links:
+  - name: Питання чи обговорення
+    url: https://github.com/vitalii98t/folio/discussions
+    about: Якщо це не баг і не feature request — використовуй Discussions замість Issues

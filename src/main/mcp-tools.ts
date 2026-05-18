@@ -1,6 +1,11 @@
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
+import { app } from 'electron';
 import { FinmapAPI } from './finmap-api';
 import { reconcile } from './reconcile-matcher';
+import { GDriveClient } from './gdrive-client';
 
 let _sdk: typeof import('@anthropic-ai/claude-code') | null = null;
 async function getSDK() {
@@ -62,6 +67,17 @@ export const MUTATION_TOOLS = new Set([
   'mcp__finmap__upsert_exchange_rate', 'mcp__finmap__delete_exchange_rate',
   'mcp__finmap__create_webhook', 'mcp__finmap__update_webhook', 'mcp__finmap__delete_webhook',
   'mcp__finmap__save_integration', 'mcp__finmap__update_integration', 'mcp__finmap__delete_integration',
+  // MCP-server self-management — adding/removing other MCP servers is a
+  // sensitive operation (it spawns child processes and stores API tokens),
+  // so user must confirm via the same ConfirmationBar flow.
+  'mcp__finmap__add_mcp_server', 'mcp__finmap__update_mcp_server', 'mcp__finmap__remove_mcp_server',
+  // File import bindings — create/update/delete need user confirmation
+  // because they configure recurring background imports that will create
+  // operations in Finmap on schedule.
+  'mcp__finmap__create_file_binding', 'mcp__finmap__update_file_binding', 'mcp__finmap__delete_file_binding',
+  // Scheduled tasks — same pattern: recurring background activity that user
+  // should explicitly authorize.
+  'mcp__finmap__create_scheduled_task', 'mcp__finmap__update_scheduled_task', 'mcp__finmap__delete_scheduled_task',
 ]);
 
 /**
@@ -477,12 +493,375 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         });
       }
     ),
+
+    // ── MCP self-management ──
+    // These tools let Claude inspect and configure OTHER MCP servers attached
+    // to the current session. Driven by the `mcp-setup` skill: user says
+    // "connect Telegram" → Claude WebSearches → reads server's README →
+    // gathers config + tokens from user → calls `add_mcp_server` (mutation,
+    // confirmed by user). New servers activate from the NEXT user message
+    // (current SDK session doesn't refresh mcpServers mid-conversation).
+    tool('list_mcp_servers',
+      'List MCP servers configured for the current session (Slack, Notion, Telegram, etc.). Returns name, command, args, env-var keys (values redacted), enabled, autoApproveAll. Use BEFORE add_mcp_server to avoid duplicates.',
+      {},
+      async () => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const list = (sessionStore.getMcpServers(sessionId) as any[]).map(s => ({
+          id: s.id,
+          name: s.name,
+          command: s.command,
+          args: s.args,
+          envKeys: s.env ? Object.keys(s.env) : [],
+          enabled: s.enabled,
+          autoApproveAll: s.autoApproveAll,
+        }));
+        return text({ list });
+      }
+    ),
+    tool('add_mcp_server',
+      'Register a NEW MCP server for this session (Slack, Notion, Telegram, Figma, Postgres, anything that speaks MCP). After creation, the server becomes available to Claude on the NEXT user message — current message cannot use it yet. Always check `list_mcp_servers` first to avoid duplicates.',
+      {
+        name: z.string().min(1).describe('Lower-case namespace, no spaces. Becomes tool prefix: mcp__<name>__<tool>.'),
+        command: z.string().min(1).describe('Executable to run, e.g. "npx", "uvx", or absolute path.'),
+        args: z.array(z.string()).describe('Args passed to the executable, e.g. ["-y", "@modelcontextprotocol/server-slack"].'),
+        env: z.record(z.string()).optional().describe('Env vars (API tokens). Stored locally in plaintext.'),
+        autoApproveAll: z.boolean().optional().default(false).describe('When true, ALL tools from this server skip the per-call confirmation. Use only for trusted, read-mostly services.'),
+      },
+      async (input) => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const created = sessionStore.createMcpServer({
+          sessionId,
+          name: input.name.toLowerCase().replace(/[^a-z0-9_-]/g, ''),
+          command: input.command,
+          args: input.args,
+          env: input.env,
+          enabled: true,
+          autoApproveAll: input.autoApproveAll ?? false,
+        });
+        return text({
+          created: { id: created.id, name: created.name, command: created.command, args: created.args },
+          note: 'MCP server registered. It will be available from the NEXT user message in this session.',
+        });
+      }
+    ),
+    tool('update_mcp_server',
+      'Update an existing MCP server config. Pass only fields to change.',
+      {
+        id: z.string(),
+        name: z.string().optional(),
+        command: z.string().optional(),
+        args: z.array(z.string()).optional(),
+        env: z.record(z.string()).optional(),
+        enabled: z.boolean().optional(),
+        autoApproveAll: z.boolean().optional(),
+      },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const { id, ...updates } = input;
+        const updated = sessionStore.updateMcpServer(id, updates);
+        return text({ updated, note: 'Changes apply from the NEXT user message.' });
+      }
+    ),
+    tool('remove_mcp_server',
+      'Delete an MCP server from this session.',
+      { id: z.string() },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const ok = sessionStore.deleteMcpServer(input.id);
+        return text({ deleted: ok });
+      }
+    ),
+
+    // ── Credential file management ──
+    // Users paste Service Account JSON / OAuth credentials right into the
+    // chat for convenience (non-technical users don't know what "absolute
+    // file path" means). We save the content to a per-app credentials dir
+    // and hand the resulting path back — that path goes into env of the
+    // MCP server. Means: never `cat` a JSON in a prompt to keep it private;
+    // it's saved once, MCP server reads it from disk on every spawn.
+    tool('save_service_account_key',
+      'Persist a Google Service Account JSON (or any service credential file) to the local Folio credentials dir and return its absolute path. ' +
+      'Use this when the user pastes JSON content of a Service Account into chat — call this tool first, then pass the returned `path` into the env of the MCP server you\'re configuring. ' +
+      'The file is saved per-user in Folio\'s userData (OS-protected). DO NOT echo the JSON content back to the user — just confirm the email/project.',
+      {
+        jsonContent: z.string().min(20).describe('Raw JSON content of the Service Account key file pasted by the user.'),
+        label: z.string().optional().describe('Short label for filename, e.g. "gsheets" or "gdrive-sa". Defaults to "credential".'),
+      },
+      async (input) => {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(input.jsonContent);
+        } catch {
+          return text({ error: 'Це не валідний JSON. Перевір що скопіював весь вміст файла, від { до }.' });
+        }
+        // Sanity check — Service Account JSON has these fields. Don't enforce
+        // strictly (OAuth credentials have different shape), just hint.
+        if (!parsed.private_key && !parsed.client_email && !parsed.client_id) {
+          return text({ error: 'JSON не схожий на Google credentials — не бачу ні private_key, ні client_email. Перевір що скопіював саме файл ключа Service Account.' });
+        }
+
+        const credentialsDir = path.join(app.getPath('userData'), 'credentials');
+        try { fs.mkdirSync(credentialsDir, { recursive: true }); } catch {}
+
+        const label = (input.label ?? 'credential').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        const suffix = crypto.randomBytes(4).toString('hex');
+        const filePath = path.join(credentialsDir, `${label || 'credential'}-${suffix}.json`);
+
+        // Write with restrictive permissions on Unix. On Windows the
+        // userData dir is already user-scoped by NTFS ACL.
+        fs.writeFileSync(filePath, input.jsonContent, { encoding: 'utf-8' });
+        try { fs.chmodSync(filePath, 0o600); } catch {}
+
+        return text({
+          path: filePath,
+          email: parsed.client_email,
+          projectId: parsed.project_id,
+          note: 'Ключ збережено локально у Folio. Передай шлях у поле SERVICE_ACCOUNT_PATH (або аналогічне) у env MCP-сервера.',
+        });
+      }
+    ),
+
+    // ── File import bindings (folder → Finmap auto-sync) ──
+    // These tools let the folder-import-setup skill configure recurring
+    // file imports. State (`processedFileIds`) is mutated by
+    // `mark_files_processed` after each successful import to dedupe future runs.
+    tool('list_file_bindings',
+      'List file-import bindings for the current session — each binding watches a folder in an external service (Google Drive etc.) and auto-imports new files into a Finmap account. Returns id, source, account, contextPrompt, intervalMin, enabled, processedCount, lastSync.',
+      {},
+      async () => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const list = (sessionStore.getFileBindings(sessionId) as any[]).map(b => ({
+          id: b.id,
+          sourceServerName: b.sourceServerName,
+          sourceFolderId: b.sourceFolderId,
+          sourceFolderName: b.sourceFolderName,
+          finmapAccountId: b.finmapAccountId,
+          finmapAccountName: b.finmapAccountName,
+          contextPrompt: b.contextPrompt,
+          syncIntervalMin: b.syncIntervalMin,
+          enabled: b.enabled,
+          processedCount: b.processedFileIds?.length ?? 0,
+          lastSync: b.lastSync,
+        }));
+        return text({ list });
+      }
+    ),
+    tool('create_file_binding',
+      'Create a new file-import binding. After creation, the scheduler will check the folder every `syncIntervalMin` minutes and import any file whose ID is not in `processedFileIds`. ' +
+      'IMPORTANT: pass `processedFileIds` already filled with the IDs of ALL existing files in the folder at setup time — this is the BASELINE that prevents bulk-importing the back catalog. New files added AFTER this moment are what gets imported.',
+      {
+        sourceServerName: z.string().describe('MCP server namespace, e.g. "gdrive".'),
+        sourceFolderId: z.string().describe('Folder ID from the source MCP server.'),
+        sourceFolderName: z.string().describe('Human label for UI, e.g. "Bank Statements / 2026".'),
+        finmapAccountId: z.string(),
+        finmapAccountName: z.string(),
+        contextPrompt: z.string().describe('Free-text policy: which category, counterparty, operation type, parsing hints. Example: "Категорія: Продаж послуг. Тип: дохід. Для .pdf — банківська виписка."'),
+        syncIntervalMin: z.number().int().min(5).max(1440).default(30),
+        processedFileIds: z.array(z.string()).default([]).describe('Baseline file IDs to skip on first run. Pre-populate with all existing folder files so we only import NEW ones.'),
+      },
+      async (input) => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const created = sessionStore.createFileBinding({
+          sessionId,
+          sourceServerName: input.sourceServerName,
+          sourceFolderId: input.sourceFolderId,
+          sourceFolderName: input.sourceFolderName,
+          finmapAccountId: input.finmapAccountId,
+          finmapAccountName: input.finmapAccountName,
+          contextPrompt: input.contextPrompt,
+          syncIntervalMin: input.syncIntervalMin,
+          enabled: true,
+          processedFileIds: input.processedFileIds ?? [],
+        });
+        return text({ created, note: `Binding active. Will start scanning every ${created.syncIntervalMin} min. ${created.processedFileIds.length} existing files marked as baseline.` });
+      }
+    ),
+    tool('update_file_binding',
+      'Update a file-import binding. Pass only fields to change. Most common: change `contextPrompt`, `syncIntervalMin`, or `enabled`.',
+      {
+        id: z.string(),
+        sourceFolderName: z.string().optional(),
+        finmapAccountId: z.string().optional(),
+        finmapAccountName: z.string().optional(),
+        contextPrompt: z.string().optional(),
+        syncIntervalMin: z.number().int().min(5).max(1440).optional(),
+        enabled: z.boolean().optional(),
+      },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const { id, ...updates } = input;
+        const updated = sessionStore.updateFileBinding(id, updates);
+        return text({ updated });
+      }
+    ),
+    tool('delete_file_binding',
+      'Delete a file-import binding. Does NOT touch already-imported operations in Finmap.',
+      { id: z.string() },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const ok = sessionStore.deleteFileBinding(input.id);
+        return text({ deleted: ok });
+      }
+    ),
+    tool('mark_files_processed',
+      'Mark a list of file IDs as processed for a binding. Call AFTER successfully importing those files into Finmap so the next scheduler run skips them. ' +
+      'Also used during initial setup to seed the baseline — all existing folder files marked here, only future additions will be picked up.',
+      {
+        bindingId: z.string(),
+        fileIds: z.array(z.string()).min(1),
+      },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const updated = sessionStore.markFilesProcessed(input.bindingId, input.fileIds);
+        return text({
+          updated: updated ? { id: updated.id, processedCount: updated.processedFileIds.length } : null,
+        });
+      }
+    ),
+
+    // ── Scheduled tasks (recurring background runs) ──
+    // These let Claude propose "let's make this a recurring task" after a
+    // successful one-off operation. Pattern: user asks for something, Claude
+    // does it, then asks "shall I run this every N?" — on yes, calls
+    // create_scheduled_task with the same prompt that just worked.
+    tool('list_scheduled_tasks',
+      'List recurring scheduled tasks for the current session. Returns id, name, prompt (truncated to 200ch), intervalMin, enabled, lastRun, lastStatus.',
+      {},
+      async () => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const list = (sessionStore.getTasks(sessionId) as any[]).map(t => ({
+          id: t.id,
+          name: t.name,
+          prompt: typeof t.prompt === 'string' && t.prompt.length > 200 ? t.prompt.slice(0, 200) + '…' : t.prompt,
+          intervalMin: t.intervalMin,
+          enabled: t.enabled,
+          lastRun: t.lastRun,
+          lastStatus: t.lastStatus,
+        }));
+        return text({ list });
+      }
+    ),
+    tool('create_scheduled_task',
+      'Create a recurring task that runs `prompt` on a schedule. Use AFTER successfully doing a one-off operation that the user wants to automate (daily report, weekly sync, hourly check). ' +
+      'CRITICAL: write the prompt SELF-CONTAINED — it will run on its own without prior chat context. No "the data we just discussed" — re-fetch on each run. ' +
+      'Include explicit MCP tool names where useful (e.g. "use mcp__gsheets__update_values to ..."). Background runs have a leaner system prompt without the skills list.',
+      {
+        name: z.string().min(1).describe('Short human label, e.g. "Daily category report".'),
+        prompt: z.string().min(10).describe('Self-contained instruction. Should produce the same intended result whenever it runs.'),
+        intervalMin: z.number().int().min(5).max(43200).default(60).describe('5..43200 (30 days)'),
+      },
+      async (input) => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const created = sessionStore.createTask({
+          sessionId,
+          name: input.name.trim(),
+          prompt: input.prompt.trim(),
+          intervalMin: input.intervalMin,
+          enabled: true,
+        });
+        return text({
+          created: { id: created.id, name: created.name, intervalMin: created.intervalMin },
+          note: 'Task active. Find it in Settings → Автозадачі — there you can pause, edit, or run it manually (▶ button).',
+        });
+      }
+    ),
+    tool('update_scheduled_task',
+      'Update an existing scheduled task. Pass only fields to change.',
+      {
+        id: z.string(),
+        name: z.string().optional(),
+        prompt: z.string().optional(),
+        intervalMin: z.number().int().min(5).max(43200).optional(),
+        enabled: z.boolean().optional(),
+      },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const { id, ...updates } = input;
+        const updated = sessionStore.updateTask(id, updates);
+        return text({ updated });
+      }
+    ),
+    tool('delete_scheduled_task',
+      'Delete a scheduled task. Permanent.',
+      { id: z.string() },
+      async (input) => {
+        if (!sessionStore) return text({ error: 'session context unavailable' });
+        const ok = sessionStore.deleteTask(input.id);
+        return text({ deleted: ok });
+      }
+    ),
+
+    // ── Google Drive (direct, via session's API key) ──
+    // Powers the gdrive-direct folder-import flow. Reads the API key from
+    // the session (set in Settings → Google Drive API Key) and talks to
+    // Drive v3 REST directly — no OAuth, no MCP subprocess. Public-with-link
+    // folders are the supported access model.
+    tool('gdrive_list_files',
+      'List files in a public Google Drive folder (must be shared "anyone with the link"). Returns id, name, mimeType, createdTime, modifiedTime, size. Sorted by modifiedTime desc. Use this from folder-import bindings to discover new files.',
+      {
+        folderId: z.string().describe('Folder ID — the segment after /folders/ in a Drive URL.'),
+        pageSize: z.number().int().min(1).max(1000).optional().default(100),
+      },
+      async (input) => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const session = sessionStore.get(sessionId);
+        const key = session?.googleDriveApiKey;
+        if (!key) return text({ error: 'No Google Drive API key configured for this session. Open Settings → Google Drive API Key and paste yours.' });
+        try {
+          const files = await new GDriveClient(key).listFiles(input.folderId, { pageSize: input.pageSize });
+          return text({ files });
+        } catch (err: any) {
+          return text({ error: err?.message ?? 'Drive list failed' });
+        }
+      }
+    ),
+    tool('gdrive_get_file_content',
+      'Download a single Drive file and return its content base64-encoded. For Google-native files (Docs/Sheets/Slides) automatically exports: Sheets → CSV, Docs → plain text, Slides → PDF. Use immediately after gdrive_list_files to ingest a specific new file.',
+      {
+        fileId: z.string(),
+        mimeType: z.string().describe('Source mimeType returned by gdrive_list_files. Determines whether we download raw or export.'),
+      },
+      async (input) => {
+        if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
+        const session = sessionStore.get(sessionId);
+        const key = session?.googleDriveApiKey;
+        if (!key) return text({ error: 'No Google Drive API key configured for this session.' });
+        try {
+          const client = new GDriveClient(key);
+          // Google-native types need /export; everything else uses /alt=media
+          let result: { base64: string; size: number };
+          if (input.mimeType === 'application/vnd.google-apps.spreadsheet') {
+            result = await client.exportFile(input.fileId, 'text/csv');
+          } else if (input.mimeType === 'application/vnd.google-apps.document') {
+            result = await client.exportFile(input.fileId, 'text/plain');
+          } else if (input.mimeType === 'application/vnd.google-apps.presentation') {
+            result = await client.exportFile(input.fileId, 'application/pdf');
+          } else {
+            result = await client.downloadFile(input.fileId);
+          }
+          return text({
+            base64: result.base64,
+            size: result.size,
+            note: result.size > 2_000_000 ? 'File is large (>2MB) — only first portion may be useful for parsing.' : undefined,
+          });
+        } catch (err: any) {
+          return text({ error: err?.message ?? 'Drive download failed' });
+        }
+      }
+    ),
+
     tool('create_operation',
-      'Create income/expense/transfer. For SPLIT operations across multiple projects OR multiple categories — pass projects[] OR categories[] arrays (NOT both). Each item: {id, stake, sum} where stake is percent (sum to 100) and sum is absolute amount in operation currency. System categories cannot be split.',
+      'Create income/expense/transfer. ' +
+      'DATES: `date` is the accrual date (default — required for cash-basis). `dateOfPayment` is the actual payment date when it differs from accrual (e.g., invoice issued on 1st, paid on 15th). ' +
+      '`startDate`+`endDate` define an accrual PERIOD instead of a single date (e.g., May rent = 1.05–31.05). Period works ONLY on operations that have a `categoryId` (or `categories[]` split) — Finmap rule. Pass either `date` OR `startDate`+`endDate`, not both. ' +
+      'SPLIT: for split across multiple projects OR multiple categories — pass `projects[]` OR `categories[]` arrays (NOT both). Each item: {id, stake, sum} where stake is percent (sum to 100) and sum is absolute amount in operation currency. System categories cannot be split.',
       {
         type: z.enum(['income', 'expense', 'transfer']),
         amount: z.number().min(0),
-        date: z.number().optional(),
+        date: z.number().optional().describe('Accrual date (Unix ms). Required unless startDate+endDate provided.'),
+        dateOfPayment: z.number().optional().describe('Actual payment date (Unix ms). Set when payment date differs from accrual date.'),
+        startDate: z.number().optional().describe('Accrual period start (Unix ms). Alternative to single `date` for periodic operations (rent for May, salary for week). Requires categoryId.'),
+        endDate: z.number().optional().describe('Accrual period end (Unix ms). Paired with startDate.'),
         comment: z.string().optional(),
         accountToId: z.string().optional(),
         accountFromId: z.string().optional(),
@@ -516,12 +895,17 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       }
     ),
     tool('patch_operation',
-      'Update operation. Pass only fields to change. To convert a single-project/category op into a split, pass projects[] or categories[] (mutually exclusive). System categories cannot be split.',
+      'Update operation. Pass only fields to change. ' +
+      'DATES: `date` = accrual date; `dateOfPayment` = actual payment date when different from accrual; `startDate`+`endDate` = accrual PERIOD (only for operations with categoryId — Finmap rule). To switch from single date to period or vice versa, pass the new fields — backend handles the swap. ' +
+      'SPLIT: to convert single-project/category op into a split — pass projects[] or categories[] (mutually exclusive). System categories cannot be split.',
       {
         type: z.enum(['income', 'expense', 'transfer']),
         id: z.string(),
         amount: z.number().min(0).optional(),
-        date: z.number().optional(),
+        date: z.number().optional().describe('Accrual date (Unix ms).'),
+        dateOfPayment: z.number().optional().describe('Actual payment date (Unix ms). Set when payment date differs from accrual.'),
+        startDate: z.number().optional().describe('Accrual period start (Unix ms). Use instead of `date` for periodic operations. Requires categoryId.'),
+        endDate: z.number().optional().describe('Accrual period end (Unix ms). Paired with startDate.'),
         comment: z.string().optional(),
         categoryId: z.string().optional(),
         counterpartyId: z.string().optional(),

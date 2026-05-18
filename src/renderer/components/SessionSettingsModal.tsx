@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import type { ChatSession, Integration, ScheduledTask, TaskStatusEvent } from '../../shared/types';
 import styles from '../styles/NewSessionModal.module.css';
 import notesStyles from '../styles/SessionSettingsModal.module.css';
+import { McpServersSection } from './McpServersSection';
+import { FileBindingsSection } from './FileBindingsSection';
 
 const api = (window as any).finmapAgent;
 
@@ -14,6 +16,10 @@ interface Props {
 export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   const [name, setName] = useState(session.name);
   const [notes, setNotes] = useState(session.notes ?? '');
+  const hasFinmapKey = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [apiKeySaving, setApiKeySaving] = useState(false);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
@@ -161,6 +167,76 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
               autoFocus
             />
           </label>
+
+          <div className={styles.field}>
+            <span>Finmap-підключення</span>
+            {hasFinmapKey ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 6 }}>
+                <span style={{ fontSize: 13, color: '#86efac' }}>
+                  ✅ Підключено · ключ закінчується на <code style={{ background: 'transparent' }}>…{session.apiKey!.slice(-4)}</code>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setShowApiKeyInput(true); setApiKeyDraft(''); }}
+                  style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '4px 10px', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
+                >
+                  Змінити
+                </button>
+              </div>
+            ) : !showApiKeyInput ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(234, 179, 8, 0.06)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: 6 }}>
+                <span style={{ fontSize: 13, color: '#fde68a' }}>
+                  ⚡ MCP-only режим — Finmap не підключено
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setShowApiKeyInput(true); setApiKeyDraft(''); }}
+                  style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
+                >
+                  Підключити Finmap
+                </button>
+              </div>
+            ) : null}
+            {showApiKeyInput && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                <input
+                  type="password"
+                  placeholder={hasFinmapKey ? 'Новий API-ключ Finmap' : 'API-ключ Finmap (Налаштування → API)'}
+                  value={apiKeyDraft}
+                  onChange={e => setApiKeyDraft(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', padding: '8px 10px', background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 6, color: '#fff', fontSize: 13 }}
+                />
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowApiKeyInput(false); setApiKeyDraft(''); }}
+                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 14px', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!apiKeyDraft.trim() || apiKeySaving}
+                    onClick={async () => {
+                      setApiKeySaving(true);
+                      await api.updateSession(session.id, { apiKey: apiKeyDraft.trim() });
+                      setApiKeySaving(false);
+                      setShowApiKeyInput(false);
+                      setApiKeyDraft('');
+                      // Force refresh — parent will re-fetch sessions on next interaction;
+                      // for immediate feedback we just close + reopen would be too jumpy.
+                      // Reload integrations because they need a valid key.
+                      loadIntegrations();
+                    }}
+                    style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: 4, fontSize: 12, cursor: !apiKeyDraft.trim() || apiKeySaving ? 'not-allowed' : 'pointer', opacity: !apiKeyDraft.trim() || apiKeySaving ? 0.5 : 1, fontWeight: 500 }}
+                  >
+                    {apiKeySaving ? 'Зберігаю...' : 'Зберегти'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <label className={styles.field}>
             <span>Нотатки для асистента</span>
@@ -428,6 +504,18 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                       <button
                         type="button"
                         className={notesStyles.editBtn}
+                        onClick={() => api.triggerTask(task.id)}
+                        title="Запустити зараз"
+                        aria-label="Запустити зараз"
+                        disabled={!task.enabled}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        className={notesStyles.editBtn}
                         onClick={() => handleEditTask(task)}
                         title="Редагувати"
                         aria-label="Редагувати"
@@ -460,6 +548,10 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
               </div>
             )}
           </section>
+
+          <McpServersSection sessionId={session.id} />
+
+          <FileBindingsSection session={session} />
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose}>

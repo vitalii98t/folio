@@ -6,13 +6,21 @@
 export interface ChatSession {
   id: string;
   name: string;
-  apiKey: string;
+  /** Finmap API key. Optional — sessions without it run in "MCP-only" mode
+   *  where Finmap tools are disabled but third-party MCP servers (Jira,
+   *  GSheets, Notion etc.) work normally. User can add a key later via
+   *  SessionSettingsModal to enable Finmap. */
+  apiKey?: string;
   accountId?: string;
   createdAt: number;
   /** Claude Code SDK session ID for resume */
   claudeSessionId?: string;
   /** User-defined notes appended to the system prompt for this company */
   notes?: string;
+  /** Google Drive API key — used by gdrive-direct folder-import bindings to
+   *  access folders the user has shared with "anyone with the link". Stored
+   *  per-session because different companies may use different Google accounts. */
+  googleDriveApiKey?: string;
 }
 
 /** Scheduled autonomous task — runs the given prompt against Claude on an interval */
@@ -107,6 +115,68 @@ export interface MutationConfirmation {
   input: Record<string, unknown>;
 }
 
+/** User-configured MCP server (Slack, Notion, Postgres, anything that speaks MCP).
+ *  Folio spawns it as a child process via the Claude Agent SDK on each message.
+ *  Folio's own Finmap MCP server is built-in and not represented here. */
+export interface McpServerConfig {
+  id: string;
+  sessionId: string;
+  /** Tool namespace — becomes the prefix in `mcp__<name>__<tool>`. Lower-case,
+   *  no spaces. Used in canUseTool routing too. */
+  name: string;
+  /** Executable to run (e.g., "npx", "uvx", absolute path to a binary). */
+  command: string;
+  /** Args passed to the executable (e.g., ["-y", "@modelcontextprotocol/server-slack"]). */
+  args: string[];
+  /** Env vars the server needs (API tokens etc.). Stored in plaintext locally —
+   *  this is the same trust model as Finmap apiKey on session. */
+  env?: Record<string, string>;
+  enabled: boolean;
+  /** If true — all tools from this server auto-approve without per-call UI prompt.
+   *  User takes responsibility. If false — every tool call routes through the
+   *  same confirmation flow as Finmap mutations. */
+  autoApproveAll: boolean;
+}
+
+/** Auto-import binding: watch a folder in an external service (Google Drive
+ *  for now) and import every new file into a specific Finmap account using a
+ *  free-text context prompt as the import policy.
+ *
+ *  Lifecycle:
+ *    setup     → record IDs of all existing files into processedFileIds as
+ *                baseline; nothing is imported at this point
+ *    runtime   → every syncIntervalMin, list folder → diff against
+ *                processedFileIds → import each new file with contextPrompt →
+ *                mark processed
+ *    manual    → user can also trigger a run on demand from the UI */
+export interface FileImportBinding {
+  id: string;
+  sessionId: string;
+
+  // Source (only "gdrive" today, but namespaced so we can add others)
+  sourceServerName: string;
+  sourceFolderId: string;
+  sourceFolderName: string;
+
+  // Destination
+  finmapAccountId: string;
+  finmapAccountName: string;
+
+  /** Free-text policy Claude interprets per file — what category, counterparty,
+   *  operation type, parsing hints (e.g. "for .pdf treat as bank statement"). */
+  contextPrompt: string;
+
+  syncIntervalMin: number;
+  enabled: boolean;
+
+  // State
+  processedFileIds: string[];
+  lastSync?: number;
+  /** Short textual result from the last run (truncated). */
+  lastResult?: string;
+  lastStatus?: 'done' | 'error';
+}
+
 /** Status of Claude Code on the user's machine */
 export type ClaudeCodeStatus = 'not_installed' | 'not_authenticated' | 'ready';
 
@@ -116,6 +186,7 @@ export const IPC = {
   CHECK_CLAUDE_STATUS: 'check-claude-status',
   OPEN_CLAUDE_LOGIN: 'open-claude-login',
   INSTALL_CLAUDE_CODE: 'install-claude-code',
+  CLAUDE_LOGOUT: 'claude-logout',
 
   // Sessions
   GET_SESSIONS: 'get-sessions',
@@ -164,4 +235,29 @@ export const IPC = {
   DELETE_TASK: 'delete-task',
   TOGGLE_TASK: 'toggle-task',
   CANCEL_TASK: 'cancel-task',
+
+  // User-configured MCP servers
+  GET_MCP_SERVERS: 'get-mcp-servers',
+  CREATE_MCP_SERVER: 'create-mcp-server',
+  UPDATE_MCP_SERVER: 'update-mcp-server',
+  DELETE_MCP_SERVER: 'delete-mcp-server',
+  TOGGLE_MCP_SERVER: 'toggle-mcp-server',
+
+  // File import bindings (folder → Finmap account auto-sync)
+  GET_FILE_BINDINGS: 'get-file-bindings',
+  CREATE_FILE_BINDING: 'create-file-binding',
+  UPDATE_FILE_BINDING: 'update-file-binding',
+  DELETE_FILE_BINDING: 'delete-file-binding',
+  TOGGLE_FILE_BINDING: 'toggle-file-binding',
+  TRIGGER_FILE_BINDING: 'trigger-file-binding',
+
+  // Manual trigger for scheduled tasks (in addition to the scheduler tick)
+  TRIGGER_TASK: 'trigger-task',
+
+  // Google Drive direct access (for folder-import wizard UI)
+  GDRIVE_VALIDATE: 'gdrive-validate',         // returns folder metadata + sample files
+  GDRIVE_LIST_FILES: 'gdrive-list-files',     // listing for picker / baseline collection
+
+  // Finmap account list for renderer use (wizard picks where to import)
+  GET_FINMAP_ACCOUNTS: 'get-finmap-accounts',
 } as const;

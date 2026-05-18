@@ -1,0 +1,95 @@
+name: 🐛 Bug report
+description: Щось не працює як очікувалось
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Дякую за репорт! Чим конкретніший опис — тим швидше виправимо.
+
+        Перед тим як надсилати — пошукай у [існуючих issues](https://github.com/vitalii98t/folio/issues?q=is%3Aissue), можливо вже хтось зрепортив.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Що сталось?
+      description: Опиши проблему. Що ти робив, що зламалось.
+      placeholder: |
+        Натиснув "Запустити зараз" на автозадачі — нічого не відбулось,
+        у логах помилка "exit code 1".
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Кроки відтворення
+      description: Покрокова інструкція як ще раз отримати цей баг
+      placeholder: |
+        1. Створи нову сесію без Finmap-ключа
+        2. Settings → MCP-сервери → +
+        3. ...
+        4. Бачу таку помилку: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Що мало б бути
+      description: Якої поведінки ти очікував
+    validations:
+      required: false
+
+  - type: input
+    id: folio-version
+    attributes:
+      label: Версія Folio
+      description: Знайти можна внизу sidebar (наприклад "v0.1.8")
+      placeholder: v0.1.8
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Операційна система
+      options:
+        - Windows 10
+        - Windows 11
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: claude-version
+    attributes:
+      label: Версія Claude Code CLI
+      description: 'У терміналі: `claude --version`'
+      placeholder: 2.1.142
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи / скріншоти
+      description: |
+        Якщо є щось у консолі Folio (DevTools → Console) або у терміналі — встав сюди.
+        Скрін теж можна перетягнути.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Підтвердження
+      options:
+        - label: Я переконався що цей баг ще не зарепорчено
+          required: true
+        - label: У моїх логах/скріншотах немає секретів (API-ключів, токенів, особистих даних)
+          required: true

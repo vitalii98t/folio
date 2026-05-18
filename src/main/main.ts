@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -47,9 +47,10 @@ import { SessionStore } from './session-store';
 import { AgentManager } from './agent-manager';
 import { SyncScheduler } from './sync-scheduler';
 import { installBundledSkills } from './skills-installer';
+import { setupBundledBinariesPath } from './bundled-binaries';
 import { parseFileToText } from './file-parser';
 import { IPC } from '../shared/types';
-import type { ChatSession, Integration, ScheduledTask } from '../shared/types';
+import type { ChatSession, Integration, ScheduledTask, McpServerConfig, FileImportBinding } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 const sessionStore = new SessionStore();
@@ -138,6 +139,26 @@ async function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // External links must open in the user's default browser, not hijack the
+  // app window. Two handlers cover both ways a link can fire:
+  //   • target="_blank" / window.open()  → setWindowOpenHandler
+  //   • plain <a href> click             → will-navigate
+  // We let local (dev-server + file://) URLs through so the renderer can
+  // do its own routing without us blocking it.
+  const isInternalUrl = (url: string) =>
+    url.startsWith(devUrl) || url.startsWith('file://') || url === 'about:blank';
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isInternalUrl(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isInternalUrl(url)) return;
+    event.preventDefault();
+    shell.openExternal(url).catch(() => {});
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -149,6 +170,38 @@ function setupIPC() {
   // Claude Code status check
   ipcMain.handle(IPC.CHECK_CLAUDE_STATUS, async () => {
     return checkClaudeCodeStatus();
+  });
+
+  // Full logout from Claude Code — used when an account was blocked/revoked
+  // and the cached credentials block any further work. Two cleanups happen
+  // together: (1) `claude logout` invalidates the CLI's stored token; (2) we
+  // wipe Folio's per-session `claudeSessionId` because those session ids
+  // belong to the now-invalid account and resume would fail on first message.
+  ipcMain.handle(IPC.CLAUDE_LOGOUT, async () => {
+    const claudePath = getClaudePath();
+    if (!claudePath) return { ok: false, error: 'Claude Code не знайдено на цій машині.' };
+
+    const { execSync } = await import('child_process');
+    try {
+      execSync(`"${claudePath}" logout`, { stdio: 'pipe', timeout: 10_000, encoding: 'utf-8' });
+    } catch (err: any) {
+      // `claude logout` returns non-zero if already logged out — that's
+      // success for our purposes (target state achieved).
+      const msg = err?.message ?? '';
+      if (!/not logged in|already|no credentials/i.test(msg)) {
+        // Real failure — surface it
+        return { ok: false, error: msg || 'Не вдалося виконати logout.' };
+      }
+    }
+
+    sessionStore.resetAllClaudeSessions();
+    // Drop in-memory AgentManager state too — fresh login should not reuse
+    // the now-orphaned `ActiveSession.claudeSessionId` cache.
+    for (const s of sessionStore.getAll()) {
+      agentManager.resetClaudeSession(s.id);
+    }
+
+    return { ok: true };
   });
 
   ipcMain.handle(IPC.OPEN_CLAUDE_LOGIN, async () => {
@@ -389,6 +442,92 @@ function setupIPC() {
   ipcMain.handle(IPC.CANCEL_TASK, async (_event, id: string) => {
     syncScheduler.cancelTask(id);
   });
+
+  // User-configured MCP servers
+  ipcMain.handle(IPC.GET_MCP_SERVERS, async (_event, sessionId: string) => {
+    return sessionStore.getMcpServers(sessionId);
+  });
+  ipcMain.handle(IPC.CREATE_MCP_SERVER, async (_event, cfg: Omit<McpServerConfig, 'id'>) => {
+    return sessionStore.createMcpServer(cfg);
+  });
+  ipcMain.handle(IPC.UPDATE_MCP_SERVER, async (_event, id: string, updates: Partial<McpServerConfig>) => {
+    return sessionStore.updateMcpServer(id, updates);
+  });
+  ipcMain.handle(IPC.DELETE_MCP_SERVER, async (_event, id: string) => {
+    return sessionStore.deleteMcpServer(id);
+  });
+  ipcMain.handle(IPC.TOGGLE_MCP_SERVER, async (_event, id: string) => {
+    return sessionStore.toggleMcpServer(id);
+  });
+
+  // File import bindings (folder → Finmap account auto-sync)
+  ipcMain.handle(IPC.GET_FILE_BINDINGS, async (_event, sessionId: string) => {
+    return sessionStore.getFileBindings(sessionId);
+  });
+  ipcMain.handle(IPC.CREATE_FILE_BINDING, async (_event, cfg: Omit<FileImportBinding, 'id'>) => {
+    return sessionStore.createFileBinding(cfg);
+  });
+  ipcMain.handle(IPC.UPDATE_FILE_BINDING, async (_event, id: string, updates: Partial<FileImportBinding>) => {
+    return sessionStore.updateFileBinding(id, updates);
+  });
+  ipcMain.handle(IPC.DELETE_FILE_BINDING, async (_event, id: string) => {
+    return sessionStore.deleteFileBinding(id);
+  });
+  ipcMain.handle(IPC.TOGGLE_FILE_BINDING, async (_event, id: string) => {
+    return sessionStore.toggleFileBinding(id);
+  });
+  ipcMain.handle(IPC.TRIGGER_FILE_BINDING, async (_event, id: string) => {
+    syncScheduler.triggerBinding(id);
+  });
+
+  // Manual trigger for an already-scheduled task — runs it immediately
+  // regardless of the scheduler tick. Useful for testing or "run now".
+  ipcMain.handle(IPC.TRIGGER_TASK, async (_event, id: string) => {
+    syncScheduler.triggerTask(id);
+  });
+
+  // Google Drive direct — used by the FolderImportWizard UI to validate a
+  // folder URL and inspect contents before creating a binding.
+  ipcMain.handle(IPC.GDRIVE_VALIDATE, async (_event, payload: { apiKey: string; folderUrl: string }) => {
+    const { GDriveClient } = await import('./gdrive-client');
+    const folderId = GDriveClient.parseFolderUrl(payload.folderUrl);
+    if (!folderId) return { ok: false, error: 'Не вдалося розпізнати ID папки з URL.' };
+    try {
+      const client = new GDriveClient(payload.apiKey);
+      const meta = await client.getFolderMetadata(folderId);
+      const files = await client.listFiles(folderId, { pageSize: 10 });
+      return { ok: true, folderId, folder: meta, sampleFiles: files };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Drive request failed' };
+    }
+  });
+  ipcMain.handle(IPC.GDRIVE_LIST_FILES, async (_event, payload: { apiKey: string; folderId: string }) => {
+    const { GDriveClient } = await import('./gdrive-client');
+    try {
+      const files = await new GDriveClient(payload.apiKey).listFiles(payload.folderId, { pageSize: 1000 });
+      return { ok: true, files };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Drive request failed' };
+    }
+  });
+
+  // Used by the FolderImportWizard to populate the "where to import" picker.
+  // Takes a Finmap apiKey from the session so renderer doesn't need to keep
+  // it around — main creates a fresh FinmapAPI client per call.
+  ipcMain.handle(IPC.GET_FINMAP_ACCOUNTS, async (_event, finmapApiKey: string) => {
+    const { FinmapAPI } = await import('./finmap-api');
+    try {
+      const list = await new FinmapAPI(finmapApiKey).getAccounts(true);
+      return list.map((a: any) => ({
+        id: a.id,
+        label: a.label,
+        currencyId: a.currencyId,
+        balance: a.balance,
+      }));
+    } catch {
+      return [];
+    }
+  });
 }
 
 // ── App lifecycle ─────────────────────────────────────────────
@@ -414,6 +553,11 @@ function migrateLegacyData() {
 
 app.whenReady().then(() => {
   migrateLegacyData();
+
+  // MUST be before AgentManager spawns anything — child processes inherit
+  // PATH at spawn time, so prepending bundled `uv`/`uvx` first ensures
+  // Python-based MCP servers find them.
+  setupBundledBinariesPath();
 
   // Install bundled skills into a stable workspace dir, then point the agent
   // at it as cwd — Claude Code auto-discovers `.claude/skills/` from cwd.

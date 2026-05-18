@@ -134,6 +134,21 @@ export function App() {
     }
   }
 
+  async function handleClaudeLogout() {
+    if (!confirm('Вийти з Claude Code?\n\nПісля цього знадобиться залогінитись знову. Локальні дані Folio (історія чатів, налаштування) залишаться.')) return;
+    const result = await api.claudeLogout();
+    if (!result.ok) {
+      alert(`Не вдалося вийти: ${result.error}`);
+      return;
+    }
+    // Re-sync local state with the now-cleared session ids
+    const fresh = await api.getSessions();
+    setSessions(fresh);
+    setAuthError(null);
+    // Force the setup-screen branch — user clicks "Увійти в Claude Code" to re-auth
+    setClaudeStatus('not_authenticated');
+  }
+
   return (
     <div className={styles.app}>
       <Sidebar
@@ -143,6 +158,7 @@ export function App() {
         onNew={() => setShowNewSession(true)}
         onDelete={handleDeleteSession}
         onSearch={() => setShowSearch(true)}
+        onClaudeLogout={handleClaudeLogout}
       />
       <main className={styles.main}>
         {activeSession ? (

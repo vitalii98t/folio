@@ -10,7 +10,14 @@ const RETRY_DELAY_MS = 1_500;         // backoff base
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export class FinmapAPI {
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string | undefined) {}
+
+  /** True when this client has credentials to actually call Finmap. Tools
+   *  should short-circuit with a clear error before HTTP round-trip in
+   *  MCP-only sessions (where the user hasn't added a key). */
+  hasKey(): boolean {
+    return typeof this.apiKey === 'string' && this.apiKey.trim().length > 0;
+  }
 
   private async request<T>(
     method: string,
@@ -18,6 +25,11 @@ export class FinmapAPI {
     body?: unknown,
     query?: Record<string, string>
   ): Promise<T> {
+    if (!this.hasKey()) {
+      throw new Error(
+        'Finmap не підключено для цієї сесії. Додай API-ключ Finmap у налаштуваннях сесії, щоб користуватись Finmap-інструментами.'
+      );
+    }
     const url = new URL(`${BASE_URL}${path}`);
     if (query) {
       for (const [k, v] of Object.entries(query)) {
@@ -34,7 +46,9 @@ export class FinmapAPI {
           method,
           headers: {
             'Content-Type': 'application/json',
-            'apiKey': this.apiKey,
+            // Guaranteed non-empty here — hasKey() check at top of method
+            // returns early when key is missing.
+            'apiKey': this.apiKey as string,
           },
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,

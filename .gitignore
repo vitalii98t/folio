@@ -2,6 +2,10 @@ node_modules/
 dist/
 release/
 
+# Bundled third-party binaries — fetched at build time via
+# `npm run fetch-binaries`. See scripts/fetch-uv-binaries.mjs.
+resources/binaries/
+
 # Logs
 *.log
 npm-debug.log*

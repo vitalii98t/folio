@@ -1,0 +1,52 @@
+name: 🔌 Запит на інтеграцію
+description: Хочу щоб Folio підтримував якийсь конкретний сервіс (банк, CRM, e-commerce тощо)
+title: "[Integration]: "
+labels: ["integration", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        У Folio є **mcp-setup** скіл і UI для додавання MCP-серверів — ти можеш підключити **будь-який сервіс**, що має MCP-сервер, **сам, без нашого коду**.
+
+        Цей шаблон потрібен лише якщо:
+        - Хочеш сервіс який **немає MCP-сервера** взагалі (треба робити з нуля)
+        - Або сервіс має MCP, але якийсь специфічний моменто потребує підтримки у Folio
+
+  - type: input
+    id: service
+    attributes:
+      label: Який сервіс?
+      description: Назва + посилання на офіційний сайт
+      placeholder: 'Monobank · https://monobank.ua'
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Як хочеш користуватись?
+      description: Опиши реальний сценарій — що Folio мав би робити з цим сервісом
+      placeholder: |
+        Тягнути транзакції з Monobank щодня → автоматично створювати операції у Finmap.
+        + Створювати рахунок-фактуру з Folio → надсилати клієнту через цей сервіс.
+    validations:
+      required: true
+
+  - type: input
+    id: docs
+    attributes:
+      label: Документація API сервісу (опційно)
+      description: Якщо сервіс має публічне API — кинь посилання
+      placeholder: https://api.monobank.ua/docs/
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: mcp-checked
+    attributes:
+      label: Перевірив чи є MCP-сервер?
+      options:
+        - label: 'Я шукав MCP для цього сервіса на GitHub і не знайшов'
+          required: false
+        - label: 'MCP існує, але є проблема з підключенням до Folio (опиши вище)'
+          required: false

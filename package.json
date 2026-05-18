@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Folio — intelligent desktop assistant for Finmap",
   "author": "vitalii98t",
   "homepage": "https://finmap.online",
@@ -11,6 +11,9 @@
     "dev:renderer": "vite",
     "dev:electron": "electron .",
     "icons": "node scripts/gen-icons.mjs",
+    "fetch-binaries": "node scripts/fetch-uv-binaries.mjs && node scripts/fetch-node-binaries.mjs",
+    "fetch-uv": "node scripts/fetch-uv-binaries.mjs",
+    "fetch-node": "node scripts/fetch-node-binaries.mjs",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "node build-main.mjs",
     "build:renderer": "vite build",
@@ -79,13 +82,19 @@
       ],
       "category": "public.app-category.finance",
       "icon": "build/icon-512.png",
-      "identity": null
+      "identity": null,
+      "extraResources": [
+        { "from": "resources/binaries/darwin-${arch}", "to": "binaries", "filter": ["**/*"] }
+      ]
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        { "from": "resources/binaries/win32-${arch}", "to": "binaries", "filter": ["**/*"] }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -102,7 +111,10 @@
       ],
       "icon": "build/icon-512.png",
       "category": "Office",
-      "maintainer": "vitalii98t"
+      "maintainer": "vitalii98t",
+      "extraResources": [
+        { "from": "resources/binaries/linux-${arch}", "to": "binaries", "filter": ["**/*"] }
+      ]
     }
   }
 }

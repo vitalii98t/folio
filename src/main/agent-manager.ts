@@ -1,6 +1,6 @@
 import { FinmapAPI } from './finmap-api';
 import { buildFinmapMcpServer, MUTATION_TOOLS } from './mcp-tools';
-import { SYSTEM_PROMPT, BACKGROUND_SYSTEM_PROMPT } from './system-prompt';
+import { SYSTEM_PROMPT, BACKGROUND_SYSTEM_PROMPT, MCP_ONLY_SYSTEM_PROMPT } from './system-prompt';
 import { getClaudePath, isAuthError } from './claude-status';
 import type { SessionStore } from './session-store';
 import type { ChatSession } from '../shared/types';
@@ -34,6 +34,12 @@ const ALLOWED_TOOLS = [
   'Read',
   'Glob',
 
+  // Web access — used by `mcp-setup` skill to search for and read MCP server
+  // documentation when user asks to connect a new service (Telegram, Figma,
+  // Google Drive etc.). Read-only, safe to auto-approve.
+  'WebFetch',
+  'WebSearch',
+
   // Finmap MCP tools (read-only)
   'mcp__finmap__http_request',
   'mcp__finmap__get_accounts',
@@ -57,6 +63,37 @@ const ALLOWED_TOOLS = [
   // Pure computation — deterministic matcher used by reconcile-statement skill.
   // Read-only; no API side effects.
   'mcp__finmap__reconcile_match',
+
+  // MCP self-management. `list_mcp_servers` is read-only and auto-approves;
+  // add/update/remove are in MUTATION_TOOLS and route through user confirmation.
+  'mcp__finmap__list_mcp_servers',
+  'mcp__finmap__add_mcp_server',
+  'mcp__finmap__update_mcp_server',
+  'mcp__finmap__remove_mcp_server',
+  // Saves user-pasted service account JSON to userData/credentials. Local
+  // file-write only, no network — auto-approve so the wizard flow stays
+  // smooth. add_mcp_server (which actually wires up the credentials) is
+  // still a mutation and confirms.
+  'mcp__finmap__save_service_account_key',
+
+  // File import bindings. Same pattern: list/mark are auto-approved (read +
+  // pure state bookkeeping), create/update/delete confirm via UI.
+  'mcp__finmap__list_file_bindings',
+  'mcp__finmap__create_file_binding',
+  'mcp__finmap__update_file_binding',
+  'mcp__finmap__delete_file_binding',
+  'mcp__finmap__mark_files_processed',
+
+  // Google Drive direct (via session API key) — read-only public-folder access.
+  'mcp__finmap__gdrive_list_files',
+  'mcp__finmap__gdrive_get_file_content',
+
+  // Scheduled-task management. list_scheduled_tasks is read-only; mutations
+  // route through user confirmation (they configure recurring background jobs).
+  'mcp__finmap__list_scheduled_tasks',
+  'mcp__finmap__create_scheduled_task',
+  'mcp__finmap__update_scheduled_task',
+  'mcp__finmap__delete_scheduled_task',
 ];
 
 /**
@@ -185,17 +222,61 @@ export class AgentManager {
       active.mcpServer = await buildFinmapMcpServer(active.api, this.sessionStore, session.id);
     }
 
+    // Resolve user-configured MCP servers for this session. Each enabled one
+    // is passed to Claude Agent SDK as a stdio child-process spec — SDK spawns
+    // it, manages its lifecycle, and exposes its tools as mcp__<name>__<tool>.
+    const userMcpConfigs = this.sessionStore.getMcpServers(session.id).filter(s => s.enabled);
+    const userMcpServers: Record<string, { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> }> = {};
+    for (const cfg of userMcpConfigs) {
+      userMcpServers[cfg.name] = {
+        type: 'stdio',
+        command: cfg.command,
+        args: cfg.args,
+        ...(cfg.env && Object.keys(cfg.env).length > 0 ? { env: cfg.env } : {}),
+      };
+    }
+    // Fast lookup: tool prefix → autoApproveAll flag
+    const autoApproveByPrefix = new Map<string, boolean>();
+    for (const cfg of userMcpConfigs) {
+      autoApproveByPrefix.set(`mcp__${cfg.name}__`, cfg.autoApproveAll);
+    }
+
     try {
       const sdk = await getSDK();
       let fullResponse = '';
 
       const canUseTool: import('@anthropic-ai/claude-code').CanUseTool = async (toolName, input, { signal }) => {
-        // Non-mutations reach here only if they're outside allowedTools. Shouldn't happen
-        // for MCP tools, but be permissive if it does.
-        if (!MUTATION_TOOLS.has(toolName) || active.autoApprove || forceAutoApprove) {
+        // Session-wide auto-approve OR background run → allow everything.
+        if (active.autoApprove || forceAutoApprove) {
           return { behavior: 'allow', updatedInput: input };
         }
-        // Mutation needs user confirmation
+
+        // Folio's own Finmap tools — known mutation list, ask only on writes.
+        if (toolName.startsWith('mcp__finmap__')) {
+          if (!MUTATION_TOOLS.has(toolName)) {
+            return { behavior: 'allow', updatedInput: input };
+          }
+          // Fall through to user-confirmation flow below.
+        } else {
+          // User-configured MCP tool — auto-approve if that server allows;
+          // otherwise route through confirmation.
+          let matched = false;
+          for (const [prefix, autoOk] of autoApproveByPrefix) {
+            if (toolName.startsWith(prefix)) {
+              matched = true;
+              if (autoOk) return { behavior: 'allow', updatedInput: input };
+              break;
+            }
+          }
+          // Tool name doesn't match any known prefix — unknown source, be
+          // permissive (Claude Code built-ins like Read/Glob already on
+          // allowedTools, but anything else falls through here).
+          if (!matched) {
+            return { behavior: 'allow', updatedInput: input };
+          }
+        }
+
+        // Needs user confirmation
         onToolPermission?.(toolName, input);
         active.pendingInput = input;
         return new Promise<PermissionResult>((resolve) => {
@@ -209,11 +290,16 @@ export class AgentManager {
 
       const claudePath = getClaudePath() || undefined;
 
-      // Background runs (scheduled tasks, integration auto-syncs) get a lean
-      // prompt without the skills section — they're driven by their own
-      // detailed syncPrompt/task.prompt and don't need the skill-discovery
-      // overhead. Interactive sessions use the full prompt with skills.
-      const basePrompt = forceAutoApprove ? BACKGROUND_SYSTEM_PROMPT : SYSTEM_PROMPT;
+      // Three prompt variants:
+      //   • Background runs (scheduled tasks, auto-syncs) — lean prompt, the
+      //     task.prompt itself drives behaviour, skills list is dead weight.
+      //   • Sessions with no Finmap API key — MCP-only orchestrator persona,
+      //     Finmap tools will 401 anyway so we tell Claude not to suggest them.
+      //   • Default interactive session with Finmap — full prompt + skills.
+      const hasFinmap = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
+      const basePrompt = forceAutoApprove
+        ? BACKGROUND_SYSTEM_PROMPT
+        : hasFinmap ? SYSTEM_PROMPT : MCP_ONLY_SYSTEM_PROMPT;
       const systemPrompt = session.notes?.trim()
         ? `${basePrompt}\n\n## Company context (from user)\n${session.notes.trim()}`
         : basePrompt;
@@ -227,7 +313,7 @@ export class AgentManager {
         // from `<cwd>/.claude/skills/`.
         cwd: this.workspaceCwd,
         pathToClaudeCodeExecutable: claudePath,
-        mcpServers: { finmap: active.mcpServer },
+        mcpServers: { finmap: active.mcpServer, ...userMcpServers },
         allowedTools: ALLOWED_TOOLS,
         permissionMode: 'default',
       };
