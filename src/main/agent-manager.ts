@@ -13,16 +13,29 @@ async function getSDK() {
 
 type PermissionResult = import('@anthropic-ai/claude-code').PermissionResult;
 
+/** One mutation awaiting user confirmation. Multiple can be pending at once
+ *  (Claude may call several tools in parallel) — they queue FIFO. */
+interface PendingConfirm {
+  toolName: string;
+  input: Record<string, unknown>;
+  resolve: (result: PermissionResult) => void;
+  /** Auto-deny timer so an unanswered confirmation can't hang the run forever
+   *  (e.g. UI crashed mid-confirmation). */
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** How long a confirmation may sit unanswered before we auto-deny it. */
+const CONFIRM_TIMEOUT_MS = 10 * 60_000;
+
 interface ActiveSession {
   api: FinmapAPI;
   mcpServer: Awaited<ReturnType<typeof buildFinmapMcpServer>> | null;
   claudeSessionId: string | null;
   abortController: AbortController | null;
-  pendingConfirmResolve: ((result: PermissionResult) => void) | null;
+  /** FIFO queue of mutations awaiting user confirmation */
+  pendingConfirms: PendingConfirm[];
   /** When true — auto-approve all mutations without asking user */
   autoApprove: boolean;
-  /** Last input received in canUseTool, used on confirm */
-  pendingInput: Record<string, unknown> | null;
 }
 
 // Read-only tools — SDK auto-approves these via --allowedTools flag (canUseTool skipped).
@@ -117,6 +130,10 @@ export class AgentManager {
     this.workspaceCwd = cwd;
   }
 
+  getWorkspaceCwd(): string {
+    return this.workspaceCwd;
+  }
+
   private getOrCreate(session: ChatSession): ActiveSession {
     let active = this.sessions.get(session.id);
     if (!active) {
@@ -125,9 +142,8 @@ export class AgentManager {
         mcpServer: null,
         claudeSessionId: session.claudeSessionId || null,
         abortController: null,
-        pendingConfirmResolve: null,
+        pendingConfirms: [],
         autoApprove: false,
-        pendingInput: null,
       };
       this.sessions.set(session.id, active);
     }
@@ -176,13 +192,15 @@ export class AgentManager {
     }
   }
 
+  /** Confirm the OLDEST pending mutation (FIFO — matches the order the UI
+   *  shows them in). Returns false if nothing was pending. */
   async confirmMutation(sessionId: string): Promise<boolean> {
     const active = this.sessions.get(sessionId);
-    if (active?.pendingConfirmResolve) {
+    const pending = active?.pendingConfirms.shift();
+    if (pending) {
+      clearTimeout(pending.timer);
       // Use original input — passing {} would execute tool with empty data!
-      active.pendingConfirmResolve({ behavior: 'allow', updatedInput: active.pendingInput ?? {} });
-      active.pendingConfirmResolve = null;
-      active.pendingInput = null;
+      pending.resolve({ behavior: 'allow', updatedInput: pending.input });
       return true;
     }
     return false;
@@ -190,10 +208,10 @@ export class AgentManager {
 
   async rejectMutation(sessionId: string): Promise<boolean> {
     const active = this.sessions.get(sessionId);
-    if (active?.pendingConfirmResolve) {
-      active.pendingConfirmResolve({ behavior: 'deny', message: 'User rejected this action.' });
-      active.pendingConfirmResolve = null;
-      active.pendingInput = null;
+    const pending = active?.pendingConfirms.shift();
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.resolve({ behavior: 'deny', message: 'User rejected this action.' });
       return true;
     }
     return false;
@@ -276,14 +294,32 @@ export class AgentManager {
           }
         }
 
-        // Needs user confirmation
+        // Needs user confirmation — queue it (Claude can fire several
+        // mutations in parallel; each gets its own entry and the UI walks
+        // the queue FIFO).
         onToolPermission?.(toolName, input);
-        active.pendingInput = input;
         return new Promise<PermissionResult>((resolve) => {
-          active.pendingConfirmResolve = resolve;
+          const entry: PendingConfirm = {
+            toolName,
+            input,
+            resolve,
+            timer: setTimeout(() => {
+              // Nobody answered — deny so the run can finish instead of
+              // hanging forever (UI may have crashed or user walked away).
+              const idx = active.pendingConfirms.indexOf(entry);
+              if (idx !== -1) active.pendingConfirms.splice(idx, 1);
+              resolve({
+                behavior: 'deny',
+                message: 'Користувач не підтвердив дію протягом 10 хвилин — скасовано автоматично.',
+              });
+            }, CONFIRM_TIMEOUT_MS),
+          };
+          active.pendingConfirms.push(entry);
           signal.addEventListener('abort', () => {
+            const idx = active.pendingConfirms.indexOf(entry);
+            if (idx !== -1) active.pendingConfirms.splice(idx, 1);
+            clearTimeout(entry.timer);
             resolve({ behavior: 'deny', message: 'Cancelled' });
-            active.pendingInput = null;
           });
         });
       };
@@ -317,6 +353,13 @@ export class AgentManager {
         allowedTools: ALLOWED_TOOLS,
         permissionMode: 'default',
       };
+
+      // Per-session model override. Aliases ("opus"/"sonnet"/"haiku") are
+      // resolved by Claude Code itself to the newest model of that tier
+      // available on the user's plan. Unset = Claude Code's own default.
+      if (session.model?.trim()) {
+        options.model = session.model.trim();
+      }
 
       // Resume previous conversation to maintain history.
       // Do NOT set `continue: true` — it overrides `resume` and latches to the

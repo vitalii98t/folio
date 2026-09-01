@@ -3,6 +3,8 @@ import styles from '../styles/ConfirmationBar.module.css';
 interface Props {
   toolName: string;
   input: Record<string, unknown>;
+  /** How many more confirmations are queued behind this one */
+  queueCount?: number;
   onConfirm: () => void;
   onReject: () => void;
 }
@@ -123,7 +125,7 @@ function formatDetails(toolName: string, input: Record<string, unknown>): string
   return parts.join(' · ');
 }
 
-export function ConfirmationBar({ toolName, input, onConfirm, onReject }: Props) {
+export function ConfirmationBar({ toolName, input, queueCount = 0, onConfirm, onReject }: Props) {
   const bare = stripPrefix(toolName);
   const label = ACTION_LABELS[bare] ?? bare.replace(/_/g, ' ');
   const details = formatDetails(toolName, input);
@@ -134,6 +136,11 @@ export function ConfirmationBar({ toolName, input, onConfirm, onReject }: Props)
       <div className={styles.info}>
         <span className={styles.label}>{label}</span>
         {details && <span className={styles.details}>{details}</span>}
+        {queueCount > 0 && (
+          <span className={styles.details} title="Дії підтверджуються по черзі">
+            +{queueCount} у черзі
+          </span>
+        )}
       </div>
       <div className={styles.actions}>
         <button className={styles.confirmBtn} onClick={onConfirm}>

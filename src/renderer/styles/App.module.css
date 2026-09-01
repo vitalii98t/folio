@@ -225,3 +225,65 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+
+/* ── Update-ready banner ── */
+.updateBanner {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(15, 15, 22, 0.95);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border: 1px solid rgba(109, 213, 237, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 10px 16px;
+  box-shadow: var(--shadow-lg), 0 0 24px rgba(109, 213, 237, 0.12);
+  font-size: 13px;
+  color: var(--text-primary);
+  animation: auth-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.updateBannerActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.updateBannerInstall {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  box-shadow: 0 2px 12px rgba(109, 213, 237, 0.35);
+}
+
+.updateBannerInstall:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(109, 213, 237, 0.5);
+}
+
+.updateBannerDismiss {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.updateBannerDismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

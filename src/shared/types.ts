@@ -21,6 +21,11 @@ export interface ChatSession {
    *  access folders the user has shared with "anyone with the link". Stored
    *  per-session because different companies may use different Google accounts. */
   googleDriveApiKey?: string;
+  /** Claude model for this session — one of the `value`s the installed Claude
+   *  Code reports via LIST_CLAUDE_MODELS (an alias like "sonnet"/"opus[1m]",
+   *  or a full id). Passed straight to the SDK; undefined = whatever the
+   *  user's Claude Code defaults to. */
+  model?: string;
 }
 
 /** Scheduled autonomous task — runs the given prompt against Claude on an interval */
@@ -35,6 +40,9 @@ export interface ScheduledTask {
   /** Short textual result from the last execution (truncated) */
   lastResult?: string;
   lastStatus?: 'done' | 'error';
+  /** Consecutive failed runs — drives exponential backoff in SyncScheduler.
+   *  Reset to 0 on the first successful run. */
+  consecutiveFailures?: number;
 }
 
 /** Event emitted from main when a scheduled task changes state */
@@ -42,6 +50,10 @@ export interface TaskStatusEvent {
   taskId: string;
   sessionId: string;
   taskName: string;
+  /** What kind of background run this is — scheduled task or file-import
+   *  binding. They share this event channel; UI uses kind for labels and to
+   *  route the cancel action. Absent = 'task' (older events). */
+  kind?: 'task' | 'binding';
   status: 'start' | 'progress' | 'done' | 'error';
   /** For 'progress' — name of the tool that just started (e.g. mcp__finmap__get_operations) */
   currentTool?: string;
@@ -63,6 +75,9 @@ export interface Integration {
   /** Sync interval in minutes (default 30) */
   syncIntervalMin: number;
   lastSync?: number;
+  lastStatus?: 'done' | 'error';
+  /** Consecutive failed syncs — drives exponential backoff in SyncScheduler. */
+  consecutiveFailures?: number;
   /** Short instruction for Claude how to sync this service */
   syncPrompt?: string;
 }
@@ -175,13 +190,47 @@ export interface FileImportBinding {
   /** Short textual result from the last run (truncated). */
   lastResult?: string;
   lastStatus?: 'done' | 'error';
+  /** Consecutive failed runs — drives exponential backoff in SyncScheduler. */
+  consecutiveFailures?: number;
+}
+
+/** One entry of the model picker, as reported by the installed Claude Code.
+ *  We never hardcode this list — see main/claude-models.ts for why. */
+export interface ClaudeModelInfo {
+  /** What to store on the session and hand to the SDK (e.g. "sonnet", "opus[1m]"). */
+  value: string;
+  /** Human label from the CLI (e.g. "Opus (1M context)"). */
+  displayName: string;
+  /** One-line explainer from the CLI (e.g. "Sonnet 5 · Efficient for routine tasks"). */
+  description: string;
+  /** Full model id the value resolves to, when the CLI reports one. */
+  resolvedModel?: string;
 }
 
 /** Status of Claude Code on the user's machine */
 export type ClaudeCodeStatus = 'not_installed' | 'not_authenticated' | 'ready';
 
+/** Auto-update progress event (main → renderer). Emitted by electron-updater
+ *  wiring in main.ts. Only 'downloaded' triggers UI — a banner offering
+ *  restart; the rest exist for future use/debugging. */
+export interface UpdateStatusEvent {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  /** Version of the update (for 'available' / 'downloaded'). */
+  version?: string;
+  /** Download percentage (for 'downloading'). */
+  percent?: number;
+  /** Error message (for 'error'). */
+  error?: string;
+}
+
 /** IPC channel names */
 export const IPC = {
+  // App meta
+  GET_APP_VERSION: 'get-app-version',
+
+  // Models the installed Claude Code offers on the user's plan
+  LIST_CLAUDE_MODELS: 'list-claude-models',
+
   // Claude Code status
   CHECK_CLAUDE_STATUS: 'check-claude-status',
   OPEN_CLAUDE_LOGIN: 'open-claude-login',
@@ -253,6 +302,13 @@ export const IPC = {
 
   // Manual trigger for scheduled tasks (in addition to the scheduler tick)
   TRIGGER_TASK: 'trigger-task',
+
+  // Cancel a running file-import binding (mirror of CANCEL_TASK)
+  CANCEL_FILE_BINDING: 'cancel-file-binding',
+
+  // Auto-update (electron-updater)
+  UPDATE_STATUS: 'update-status',       // main → renderer events
+  INSTALL_UPDATE: 'install-update',     // renderer asks to quit & install
 
   // Google Drive direct access (for folder-import wizard UI)
   GDRIVE_VALIDATE: 'gdrive-validate',         // returns folder metadata + sample files

@@ -118,7 +118,11 @@ export class GDriveClient {
   /** Export Google-native files (Docs/Sheets/Slides) to a downloadable format.
    *  - Sheets  → text/csv
    *  - Docs    → text/plain (or text/markdown if supported)
-   *  - Slides  → application/pdf */
+   *  - Slides  → application/pdf
+   *
+   *  ⚠️ For Sheets this exports the FIRST tab only — the Drive API /export
+   *  endpoint has no way to target a specific tab. To read a specific tab use
+   *  `exportSheetTab(fileId, gid)` instead. */
   async exportFile(fileId: string, mimeType: string): Promise<{ base64: string; size: number }> {
     const url = new URL(`${DRIVE_BASE}/files/${fileId}/export`);
     url.searchParams.set('mimeType', mimeType);
@@ -130,5 +134,42 @@ export class GDriveClient {
     }
     const buf = Buffer.from(await res.arrayBuffer());
     return { base64: buf.toString('base64'), size: buf.length };
+  }
+
+  /** Export ONE specific tab of a Google Sheet as CSV.
+   *
+   *  The Drive API /export endpoint ignores tab selection, so we hit the
+   *  Sheets "publish" export URL (docs.google.com/.../export?format=csv&gid=)
+   *  which DOES honour gid. That endpoint authenticates by sharing, not by API
+   *  key — it works only for sheets shared "Anyone with the link", which is the
+   *  same access model the rest of this client assumes. A non-public sheet
+   *  returns a 200 HTML sign-in page rather than CSV; we detect that and throw
+   *  a clear error instead of handing back garbage. */
+  async exportSheetTab(fileId: string, gid: string): Promise<{ csv: string; size: number }> {
+    const url = new URL(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(fileId)}/export`);
+    url.searchParams.set('format', 'csv');
+    url.searchParams.set('gid', gid);
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Sheets export ${res.status}: ${(body || res.statusText).slice(0, 200)}`);
+    }
+    const contentType = res.headers.get('content-type') ?? '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (contentType.includes('text/html')) {
+      throw new Error(
+        'Не вдалося експортувати вкладку за gid: таблиця не відкрита для "Anyone with the link". ' +
+        'Експорт конкретної вкладки працює лише для публічних таблиць — або відкрий доступ, або читай через інший інструмент.'
+      );
+    }
+    return { csv: buf.toString('utf-8'), size: buf.length };
+  }
+
+  /** Pull the `gid` (tab id) out of a Sheets URL, e.g.
+   *    .../edit#gid=1372508757  or  ...?gid=1372508757
+   *  Returns null when the URL has no gid (= default first tab). */
+  static parseGid(input: string): string | null {
+    const match = input.match(/[#?&]gid=([0-9]+)/);
+    return match ? match[1] : null;
   }
 }

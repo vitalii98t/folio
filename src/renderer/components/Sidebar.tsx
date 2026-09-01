@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react';
 import type { ChatSession } from '../../shared/types';
 import styles from '../styles/Sidebar.module.css';
+
+const api = (window as any).finmapAgent;
 
 interface Props {
   sessions: ChatSession[];
@@ -12,6 +15,13 @@ interface Props {
 }
 
 export function Sidebar({ sessions, activeSessionId, onSelect, onNew, onDelete, onSearch, onClaudeLogout }: Props) {
+  // Version comes from the running build (package.json → app.getVersion), so it
+  // stays correct after an auto-update without touching this file.
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    api.getAppVersion?.().then((v: string) => setVersion(v)).catch(() => {});
+  }, []);
+
   return (
     <aside className={styles.sidebar}>
       <div className={styles.header}>
@@ -75,7 +85,7 @@ export function Sidebar({ sessions, activeSessionId, onSelect, onNew, onDelete, 
           <span className={styles.author}>
             created by <strong>vitalii98t</strong>
           </span>
-          <span className={styles.version}>v0.2.0</span>
+          {version && <span className={styles.version}>v{version}</span>}
         </div>
       </div>
     </aside>

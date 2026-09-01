@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ChatSession, ClaudeCodeStatus } from '../shared/types';
+import type { ChatSession, ClaudeCodeStatus, UpdateStatusEvent } from '../shared/types';
 import { SetupScreen } from './components/SetupScreen';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
@@ -19,11 +19,20 @@ export function App() {
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [reAuthChecking, setReAuthChecking] = useState(false);
+  const [updateReady, setUpdateReady] = useState<string | null>(null); // version downloaded & ready
 
   // Listen to runtime auth-error events from main — Claude SDK 401/403/expired
   useEffect(() => {
     const unsub = api.onStreamAuthError((_sid: string, message: string) => {
       setAuthError(message);
+    });
+    return unsub;
+  }, []);
+
+  // Auto-update: show restart prompt once the new version is downloaded
+  useEffect(() => {
+    const unsub = api.onUpdateStatus?.((e: UpdateStatusEvent) => {
+      if (e.status === 'downloaded') setUpdateReady(e.version ?? '');
     });
     return unsub;
   }, []);
@@ -193,6 +202,29 @@ export function App() {
       )}
 
       <TaskToasts />
+
+      {updateReady !== null && (
+        <div className={styles.updateBanner}>
+          <span>
+            ⬆️ Доступна нова версія{updateReady ? ` ${updateReady}` : ''} — завантажено у фоні
+          </span>
+          <div className={styles.updateBannerActions}>
+            <button
+              className={styles.updateBannerInstall}
+              onClick={() => api.installUpdate()}
+            >
+              Перезапустити й оновити
+            </button>
+            <button
+              className={styles.updateBannerDismiss}
+              onClick={() => setUpdateReady(null)}
+              title="Оновиться автоматично при наступному закритті"
+            >
+              Пізніше
+            </button>
+          </div>
+        </div>
+      )}
 
       {authError && (
         <div className={styles.authBanner}>

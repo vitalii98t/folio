@@ -2,6 +2,20 @@ import { SessionStore } from './session-store';
 import { AgentManager } from './agent-manager';
 import type { Integration, ScheduledTask, ChatSession, FileImportBinding } from '../shared/types';
 
+/** Hard ceiling for one background run. If Claude hangs (SDK stuck, MCP
+ *  server frozen), we abort instead of holding the running-set slot forever. */
+const RUN_TIMEOUT_MS = 30 * 60_000;
+
+/** Circuit breaker: after consecutive failures the effective interval grows
+ *  exponentially (2x, 4x … capped at 32x) so a permanently broken
+ *  integration doesn't hammer Claude + the external API every tick. The first
+ *  successful run resets the multiplier. */
+function backoffMultiplier(consecutiveFailures: number | undefined): number {
+  return Math.pow(2, Math.min(consecutiveFailures ?? 0, 5));
+}
+
+type RunKind = 'task' | 'binding';
+
 /**
  * Periodically triggers auto-sync for active integrations.
  * While the app is running, checks every minute if any integration
@@ -19,11 +33,27 @@ export class SyncScheduler {
     private onSyncStart?: (integration: Integration) => void,
     private onSyncDone?: (integration: Integration, result: string) => void,
     private onSyncError?: (integration: Integration, error: string) => void,
-    private onTaskStart?: (task: ScheduledTask) => void,
-    private onTaskDone?: (task: ScheduledTask, result: string) => void,
-    private onTaskError?: (task: ScheduledTask, error: string) => void,
-    private onTaskProgress?: (task: ScheduledTask, toolName: string) => void,
+    private onTaskStart?: (task: ScheduledTask, kind?: RunKind) => void,
+    private onTaskDone?: (task: ScheduledTask, result: string, kind?: RunKind) => void,
+    private onTaskError?: (task: ScheduledTask, error: string, kind?: RunKind) => void,
+    private onTaskProgress?: (task: ScheduledTask, toolName: string, kind?: RunKind) => void,
   ) {}
+
+  /** Run fn with a watchdog that aborts the session's Claude run after
+   *  RUN_TIMEOUT_MS. Returns true if the watchdog fired. */
+  private async withRunTimeout(sessionId: string, fn: () => Promise<void>): Promise<boolean> {
+    let timedOut = false;
+    const watchdog = setTimeout(() => {
+      timedOut = true;
+      this.agentManager.cancel(sessionId);
+    }, RUN_TIMEOUT_MS);
+    try {
+      await fn();
+    } finally {
+      clearTimeout(watchdog);
+    }
+    return timedOut;
+  }
 
   start() {
     if (this.timer) return;
@@ -69,6 +99,13 @@ export class SyncScheduler {
     this.agentManager.cancel(task.sessionId);
   }
 
+  /** Cancel a currently running file-import binding. */
+  cancelBinding(bindingId: string) {
+    const binding = this.sessionStore.getAllFileBindings().find(b => b.id === bindingId);
+    if (!binding || !this.runningBindings.has(binding.id)) return;
+    this.agentManager.cancel(binding.sessionId);
+  }
+
   private async tick() {
     const sessions = this.sessionStore.getAll();
     const now = Date.now();
@@ -78,7 +115,7 @@ export class SyncScheduler {
       for (const integration of integrations) {
         if (!integration.enabled) continue;
         if (this.syncing.has(integration.id)) continue;
-        const interval = (integration.syncIntervalMin || 30) * 60_000;
+        const interval = (integration.syncIntervalMin || 30) * 60_000 * backoffMultiplier(integration.consecutiveFailures);
         const lastSync = integration.lastSync || 0;
         if (now - lastSync >= interval) {
           this.runSync(session, integration);
@@ -89,7 +126,7 @@ export class SyncScheduler {
       for (const task of tasks) {
         if (!task.enabled) continue;
         if (this.runningTasks.has(task.id)) continue;
-        const interval = (task.intervalMin || 30) * 60_000;
+        const interval = (task.intervalMin || 30) * 60_000 * backoffMultiplier(task.consecutiveFailures);
         const lastRun = task.lastRun || 0;
         if (now - lastRun >= interval) {
           this.runTask(session, task);
@@ -100,7 +137,7 @@ export class SyncScheduler {
       for (const binding of bindings) {
         if (!binding.enabled) continue;
         if (this.runningBindings.has(binding.id)) continue;
-        const interval = (binding.syncIntervalMin || 30) * 60_000;
+        const interval = (binding.syncIntervalMin || 30) * 60_000 * backoffMultiplier(binding.consecutiveFailures);
         const lastSync = binding.lastSync || 0;
         if (now - lastSync >= interval) {
           this.runBinding(session, binding);
@@ -119,22 +156,38 @@ export class SyncScheduler {
     try {
       let result = '';
 
-      await this.agentManager.sendMessage(
-        session,
-        syncPrompt,
-        () => {}, // onChunk — silent
-        () => {}, // onToolCall — silent
-        (fullText) => { result = fullText; },
-        (error) => { result = `Error: ${error}`; },
-        undefined, // onToolPermission — silent
-        true,      // forceAutoApprove — integrations must not block
+      const timedOut = await this.withRunTimeout(session.id, () =>
+        this.agentManager.sendMessage(
+          session,
+          syncPrompt,
+          () => {}, // onChunk — silent
+          () => {}, // onToolCall — silent
+          (fullText) => { result = fullText; },
+          (error) => { result = `Error: ${error}`; },
+          undefined, // onToolPermission — silent
+          true,      // forceAutoApprove — integrations must not block
+        )
       );
+      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — синхронізацію перервано.`;
 
-      // Update last sync time
-      this.sessionStore.updateIntegration(integration.id, { lastSync: Date.now() });
+      const hasError = /^Error:/.test(result);
+      this.sessionStore.updateIntegration(integration.id, {
+        lastSync: Date.now(),
+        lastStatus: hasError ? 'error' : 'done',
+        consecutiveFailures: hasError ? (integration.consecutiveFailures ?? 0) + 1 : 0,
+      });
 
-      this.onSyncDone?.(integration, result);
+      if (hasError) {
+        this.onSyncError?.(integration, result.replace(/^Error:\s*/, ''));
+      } else {
+        this.onSyncDone?.(integration, result);
+      }
     } catch (err: any) {
+      this.sessionStore.updateIntegration(integration.id, {
+        lastSync: Date.now(),
+        lastStatus: 'error',
+        consecutiveFailures: (integration.consecutiveFailures ?? 0) + 1,
+      });
       this.onSyncError?.(integration, err.message ?? 'Unknown error');
     } finally {
       this.syncing.delete(integration.id);
@@ -149,27 +202,32 @@ export class SyncScheduler {
 
     try {
       let result = '';
-      await this.agentManager.sendMessage(
-        session,
-        prompt,
-        () => {}, // onChunk — ignored for silent runs
-        (toolName) => this.onTaskProgress?.(task, toolName),
-        (fullText) => { result = fullText; },
-        (error) => { result = `Error: ${error}`; },
-        undefined, // onToolPermission — tasks never prompt
-        true,      // forceAutoApprove — scheduled runs must not block on confirmation
+      const timedOut = await this.withRunTimeout(session.id, () =>
+        this.agentManager.sendMessage(
+          session,
+          prompt,
+          () => {}, // onChunk — ignored for silent runs
+          (toolName) => this.onTaskProgress?.(task, toolName, 'task'),
+          (fullText) => { result = fullText; },
+          (error) => { result = `Error: ${error}`; },
+          undefined, // onToolPermission — tasks never prompt
+          true,      // forceAutoApprove — scheduled runs must not block on confirmation
+        )
       );
+      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — задачу перервано.`;
+
       const trimmed = truncate(result);
       const hasError = /^Error:/.test(result);
       this.sessionStore.updateTask(task.id, {
         lastRun: Date.now(),
         lastResult: trimmed,
         lastStatus: hasError ? 'error' : 'done',
+        consecutiveFailures: hasError ? (task.consecutiveFailures ?? 0) + 1 : 0,
       });
       if (hasError) {
-        this.onTaskError?.(task, trimmed.replace(/^Error:\s*/, ''));
+        this.onTaskError?.(task, trimmed.replace(/^Error:\s*/, ''), 'task');
       } else {
-        this.onTaskDone?.(task, trimmed);
+        this.onTaskDone?.(task, trimmed, 'task');
       }
     } catch (err: any) {
       const msg = err.message ?? 'Unknown error';
@@ -177,8 +235,9 @@ export class SyncScheduler {
         lastRun: Date.now(),
         lastResult: msg,
         lastStatus: 'error',
+        consecutiveFailures: (task.consecutiveFailures ?? 0) + 1,
       });
-      this.onTaskError?.(task, msg);
+      this.onTaskError?.(task, msg, 'task');
     } finally {
       this.runningTasks.delete(task.id);
     }
@@ -209,7 +268,7 @@ export class SyncScheduler {
       intervalMin: binding.syncIntervalMin,
       enabled: binding.enabled,
     };
-    this.onTaskStart?.(asTaskShim);
+    this.onTaskStart?.(asTaskShim, 'binding');
 
     const prompt =
       `[Авто-імпорт з папки — bindingId: ${binding.id}]\n\n` +
@@ -234,16 +293,19 @@ export class SyncScheduler {
 
     try {
       let result = '';
-      await this.agentManager.sendMessage(
-        session,
-        prompt,
-        () => {},
-        (toolName) => this.onTaskProgress?.(asTaskShim, toolName),
-        (fullText) => { result = fullText; },
-        (error) => { result = `Error: ${error}`; },
-        undefined,
-        true, // forceAutoApprove — background run
+      const timedOut = await this.withRunTimeout(session.id, () =>
+        this.agentManager.sendMessage(
+          session,
+          prompt,
+          () => {},
+          (toolName) => this.onTaskProgress?.(asTaskShim, toolName, 'binding'),
+          (fullText) => { result = fullText; },
+          (error) => { result = `Error: ${error}`; },
+          undefined,
+          true, // forceAutoApprove — background run
+        )
       );
+      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — імпорт перервано.`;
 
       const trimmed = truncate(result);
       const hasError = /^Error:/.test(result);
@@ -251,12 +313,13 @@ export class SyncScheduler {
         lastSync: Date.now(),
         lastResult: trimmed,
         lastStatus: hasError ? 'error' : 'done',
+        consecutiveFailures: hasError ? (binding.consecutiveFailures ?? 0) + 1 : 0,
       });
 
       if (hasError) {
-        this.onTaskError?.(asTaskShim, trimmed.replace(/^Error:\s*/, ''));
+        this.onTaskError?.(asTaskShim, trimmed.replace(/^Error:\s*/, ''), 'binding');
       } else {
-        this.onTaskDone?.(asTaskShim, trimmed);
+        this.onTaskDone?.(asTaskShim, trimmed, 'binding');
       }
     } catch (err: any) {
       const msg = err.message ?? 'Unknown error';
@@ -264,8 +327,9 @@ export class SyncScheduler {
         lastSync: Date.now(),
         lastResult: msg,
         lastStatus: 'error',
+        consecutiveFailures: (binding.consecutiveFailures ?? 0) + 1,
       });
-      this.onTaskError?.(asTaskShim, msg);
+      this.onTaskError?.(asTaskShim, msg, 'binding');
     } finally {
       this.runningBindings.delete(binding.id);
     }

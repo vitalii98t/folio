@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/types';
-import type { ChatSession, Integration, ScheduledTask, SearchResult, TaskStatusEvent, McpServerConfig, FileImportBinding } from '../shared/types';
+import type { ChatSession, Integration, ScheduledTask, SearchResult, TaskStatusEvent, McpServerConfig, FileImportBinding, UpdateStatusEvent, ClaudeModelInfo } from '../shared/types';
 
 const api = {
+  // App meta
+  getAppVersion: () => ipcRenderer.invoke(IPC.GET_APP_VERSION) as Promise<string>,
+
+  // Models the installed Claude Code offers on this user's plan
+  listClaudeModels: () => ipcRenderer.invoke(IPC.LIST_CLAUDE_MODELS) as Promise<ClaudeModelInfo[]>,
+
   // Claude Code
   checkClaudeStatus: () => ipcRenderer.invoke(IPC.CHECK_CLAUDE_STATUS),
   openClaudeLogin: () => ipcRenderer.invoke(IPC.OPEN_CLAUDE_LOGIN),
@@ -133,6 +139,17 @@ const api = {
 
   // Manual trigger for scheduled task
   triggerTask: (id: string) => ipcRenderer.invoke(IPC.TRIGGER_TASK, id),
+
+  // Cancel a running file-import binding
+  cancelFileBinding: (id: string) => ipcRenderer.invoke(IPC.CANCEL_FILE_BINDING, id),
+
+  // Auto-update
+  onUpdateStatus: (cb: (event: UpdateStatusEvent) => void) => {
+    const handler = (_e: any, event: UpdateStatusEvent) => cb(event);
+    ipcRenderer.on(IPC.UPDATE_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC.UPDATE_STATUS, handler);
+  },
+  installUpdate: () => ipcRenderer.invoke(IPC.INSTALL_UPDATE),
 
   // Google Drive direct (for folder-import wizard)
   gdriveValidate: (apiKey: string, folderUrl: string) =>

@@ -6,6 +6,7 @@ import { ToolCallBadge } from './ToolCallBadge';
 import { ConfirmationBar } from './ConfirmationBar';
 import { SessionSettingsModal } from './SessionSettingsModal';
 import { ChartBlock } from './ChartBlock';
+import { MarkdownErrorBoundary } from './MarkdownErrorBoundary';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import styles from '../styles/ChatView.module.css';
 
@@ -42,8 +43,13 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [activeTools, setActiveTools] = useState<string[]>([]);
-  const [pendingConfirm, setPendingConfirm] = useState<{ toolName: string; input: Record<string, unknown> } | null>(null);
+  // FIFO queue of mutations awaiting confirmation — Claude can fire several
+  // tool calls in parallel; the bar shows the first + a "ще N" counter.
+  const [pendingConfirms, setPendingConfirms] = useState<{ toolName: string; input: Record<string, unknown> }[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  /** True while waiting for first response after sending attachments — files
+   *  are parsed in main before Claude even starts, show a distinct hint. */
+  const [parsingFiles, setParsingFiles] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -88,17 +94,20 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
     setStreamingText('');
     setActiveTools([]);
     setIsLoading(false);
-    setPendingConfirm(null);
+    setPendingConfirms([]);
+    setParsingFiles(false);
   }, [session.id]);
 
   const toggleAutoApprove = async () => {
     const next = !autoApprove;
     setAutoApprove(next);
     await api.setAutoApprove(session.id, next);
-    // If enabling — auto-approve any pending confirmation
-    if (next && pendingConfirm) {
-      await api.confirmMutation(session.id);
-      setPendingConfirm(null);
+    // If enabling — auto-approve everything currently pending
+    if (next && pendingConfirms.length > 0) {
+      for (let i = 0; i < pendingConfirms.length; i++) {
+        await api.confirmMutation(session.id);
+      }
+      setPendingConfirms([]);
     }
   };
 
@@ -152,15 +161,17 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
     const unsubs = [
       api.onStreamChunk((sid: string, text: string) => {
         if (sid !== session.id) return;
+        setParsingFiles(false);
         setStreamingText(prev => prev + text);
       }),
       api.onStreamToolCall((sid: string, toolName: string, _toolInput: Record<string, unknown>) => {
         if (sid !== session.id) return;
+        setParsingFiles(false);
         setActiveTools(prev => [...prev, toolName]);
       }),
       api.onStreamToolPermission((sid: string, toolName: string, toolInput: Record<string, unknown>) => {
         if (sid !== session.id) return;
-        setPendingConfirm({ toolName, input: toolInput });
+        setPendingConfirms(prev => [...prev, { toolName, input: toolInput }]);
       }),
       api.onStreamDone((sid: string, fullText: string) => {
         if (sid !== session.id) return;
@@ -168,6 +179,8 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
         setStreamingText('');
         setActiveTools([]);
         setIsLoading(false);
+        setParsingFiles(false);
+        setPendingConfirms([]);
       }),
       api.onStreamError((sid: string, error: string) => {
         if (sid !== session.id) return;
@@ -175,6 +188,8 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
         setStreamingText('');
         setActiveTools([]);
         setIsLoading(false);
+        setParsingFiles(false);
+        setPendingConfirms([]);
       }),
     ];
     return () => unsubs.forEach(fn => fn());
@@ -198,6 +213,7 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
     setStreamingText('');
 
     if (attachedFiles.length > 0) {
+      setParsingFiles(true);
       api.sendMessageWithFiles(session.id, text, attachedFiles.map((f: AttachedFile) => f.path));
       setAttachedFiles([]);
     } else {
@@ -225,12 +241,12 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
 
   const handleConfirm = async () => {
     await api.confirmMutation(session.id);
-    setPendingConfirm(null);
+    setPendingConfirms(prev => prev.slice(1));
   };
 
   const handleReject = async () => {
     await api.rejectMutation(session.id);
-    setPendingConfirm(null);
+    setPendingConfirms(prev => prev.slice(1));
   };
 
   const handleCancel = () => {
@@ -238,6 +254,8 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
     setIsLoading(false);
     setStreamingText('');
     setActiveTools([]);
+    setParsingFiles(false);
+    setPendingConfirms([]);
   };
 
   const startIntegration = () => {
@@ -359,7 +377,9 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
                   </div>
                 )}
                 {msg.role === 'assistant' ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{msg.content}</ReactMarkdown>
+                  <MarkdownErrorBoundary raw={msg.content}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{msg.content}</ReactMarkdown>
+                  </MarkdownErrorBoundary>
                 ) : (
                   <p>{msg.content}</p>
                 )}
@@ -392,7 +412,9 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
         {streamingText && (
           <div className={`${styles.message} ${styles.assistant}`}>
             <div className={`${styles.bubble} markdown-body`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{streamingText}</ReactMarkdown>
+              <MarkdownErrorBoundary raw={streamingText}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{streamingText}</ReactMarkdown>
+              </MarkdownErrorBoundary>
             </div>
           </div>
         )}
@@ -404,7 +426,7 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
               <span className={styles.thinkingDot}></span>
               <span className={styles.thinkingDot}></span>
               <span className={styles.thinkingDot}></span>
-              <span className={styles.thinkingText}>думаю...</span>
+              <span className={styles.thinkingText}>{parsingFiles ? 'обробляю файли...' : 'думаю...'}</span>
             </div>
           </div>
         )}
@@ -418,11 +440,12 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
           </div>
         )}
 
-        {/* Confirmation bar */}
-        {pendingConfirm && (
+        {/* Confirmation bar — shows the oldest pending mutation; the rest queue */}
+        {pendingConfirms.length > 0 && (
           <ConfirmationBar
-            toolName={pendingConfirm.toolName}
-            input={pendingConfirm.input}
+            toolName={pendingConfirms[0].toolName}
+            input={pendingConfirms[0].input}
+            queueCount={pendingConfirms.length - 1}
             onConfirm={handleConfirm}
             onReject={handleReject}
           />
@@ -499,8 +522,8 @@ export function ChatView({ session, onUpdateSession, highlightMessageId, onHighl
         <SessionSettingsModal
           session={session}
           onClose={() => setShowSettings(false)}
-          onSave={async ({ name, notes }) => {
-            await onUpdateSession(session.id, { name, notes });
+          onSave={async ({ name, notes, model }) => {
+            await onUpdateSession(session.id, { name, notes, model: model || undefined });
             setShowSettings(false);
           }}
         />

@@ -816,10 +816,12 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       }
     ),
     tool('gdrive_get_file_content',
-      'Download a single Drive file and return its content base64-encoded. For Google-native files (Docs/Sheets/Slides) automatically exports: Sheets → CSV, Docs → plain text, Slides → PDF. Use immediately after gdrive_list_files to ingest a specific new file.',
+      'Download a single Drive file. Google-native files are exported: Sheets → CSV (returned as decoded text + rowCount/charCount so you can verify completeness), Docs → plain text, Slides → PDF (base64). Other files come back base64. ' +
+      'SHEETS WITH MULTIPLE TABS: pass `gid` to read a SPECIFIC tab. Without `gid` only the FIRST tab is exported and other tabs are silently ignored — the response will carry a warning. CSV output is properly quoted, so cell values containing commas, pipes (|) or newlines stay intact (do NOT treat them as column separators).',
       {
         fileId: z.string(),
         mimeType: z.string().describe('Source mimeType returned by gdrive_list_files. Determines whether we download raw or export.'),
+        gid: z.string().optional().describe('Google Sheets ONLY: the tab id from the URL (the gid=NNN segment, e.g. "1372508757"). Required to read a specific tab — the sheet must be shared "Anyone with the link". Omit for the first/default tab.'),
       },
       async (input) => {
         if (!sessionStore || !sessionId) return text({ error: 'session context unavailable' });
@@ -828,13 +830,49 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         if (!key) return text({ error: 'No Google Drive API key configured for this session.' });
         try {
           const client = new GDriveClient(key);
-          // Google-native types need /export; everything else uses /alt=media
-          let result: { base64: string; size: number };
+
           if (input.mimeType === 'application/vnd.google-apps.spreadsheet') {
-            result = await client.exportFile(input.fileId, 'text/csv');
-          } else if (input.mimeType === 'application/vnd.google-apps.document') {
-            result = await client.exportFile(input.fileId, 'text/plain');
-          } else if (input.mimeType === 'application/vnd.google-apps.presentation') {
+            // Read a specific tab when a gid is given — Drive's /export ignores
+            // tabs, so we go through the gid-aware Sheets export path.
+            if (input.gid) {
+              const { csv, size } = await client.exportSheetTab(input.fileId, input.gid);
+              const rowCount = csv.length ? csv.split('\n').length : 0;
+              return text({
+                format: 'csv',
+                tab: `gid=${input.gid}`,
+                csv,
+                rowCount,
+                charCount: csv.length,
+                byteSize: size,
+                truncated: false,
+                note: 'Full CSV of ONE tab (gid). Reconcile rowCount with the expected total BEFORE counting/aggregating.',
+              });
+            }
+            // No gid → first tab only. Surface this loudly so a multi-tab sheet
+            // doesn't get silently mis-counted.
+            const result = await client.exportFile(input.fileId, 'text/csv');
+            const csv = Buffer.from(result.base64, 'base64').toString('utf-8');
+            const rowCount = csv.length ? csv.split('\n').length : 0;
+            return text({
+              format: 'csv',
+              tab: 'FIRST tab only',
+              csv,
+              rowCount,
+              charCount: csv.length,
+              byteSize: result.size,
+              truncated: false,
+              warning: '⚠️ Exported the FIRST tab ONLY. If you need another tab (the source URL has a gid=NNN segment), call again with the `gid` parameter — otherwise any count/aggregate will be based on the wrong tab.',
+            });
+          }
+
+          if (input.mimeType === 'application/vnd.google-apps.document') {
+            const result = await client.exportFile(input.fileId, 'text/plain');
+            const docText = Buffer.from(result.base64, 'base64').toString('utf-8');
+            return text({ format: 'text', text: docText, charCount: docText.length, byteSize: result.size, truncated: false });
+          }
+
+          let result: { base64: string; size: number };
+          if (input.mimeType === 'application/vnd.google-apps.presentation') {
             result = await client.exportFile(input.fileId, 'application/pdf');
           } else {
             result = await client.downloadFile(input.fileId);

@@ -129,7 +129,7 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
         ? allFiles.filter(f => f.id !== latestId).map(f => f.id)
         : allFiles.map(f => f.id);
 
-      await api.createFileBinding({
+      const created = await api.createFileBinding({
         sessionId: session.id,
         sourceServerName: 'gdrive-direct',
         sourceFolderId: folderId,
@@ -142,12 +142,12 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
         processedFileIds,
       });
 
-      // If user opted to import the latest file, trigger an immediate run —
-      // the scheduler will see the latest file is NOT in processedFileIds
-      // and process it.
-      // We need the binding ID; createFileBinding returns it.
-      // For now: schedule pickup via natural tick (within a minute).
-      // TODO: make createFileBinding return id and call triggerFileBinding here.
+      // User opted to import the latest file — run the binding right away
+      // instead of waiting for the next scheduler tick. The run will see the
+      // latest file is NOT in processedFileIds and process it.
+      if (importLatest && latestId && created?.id) {
+        await api.triggerFileBinding(created.id);
+      }
 
       setStep('done');
       onCreated?.();

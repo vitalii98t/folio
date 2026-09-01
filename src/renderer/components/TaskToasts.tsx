@@ -8,6 +8,7 @@ interface Toast {
   id: string;
   taskId: string;
   taskName: string;
+  kind: 'task' | 'binding';
   status: 'start' | 'done' | 'error';
   message?: string;
   toolHistory: string[];
@@ -30,6 +31,7 @@ export function TaskToasts() {
             id: `${e.taskId}-start-${Date.now()}`,
             taskId: e.taskId,
             taskName: e.taskName,
+            kind: e.kind ?? 'task',
             status: 'start',
             toolHistory: [],
             expanded: false,
@@ -56,6 +58,7 @@ export function TaskToasts() {
             id: newId,
             taskId: e.taskId,
             taskName: e.taskName,
+            kind: e.kind ?? 'task',
             status: e.status,
             message: e.result ? firstLine(e.result) : undefined,
             toolHistory: [],
@@ -100,7 +103,7 @@ export function TaskToasts() {
           </span>
           <div className={styles.body}>
             <div className={styles.title}>
-              {t.status === 'start' && 'Виконується'}
+              {t.status === 'start' && (t.kind === 'binding' ? 'Авто-імпорт' : 'Автозадача')}
               {t.status === 'done' && 'Готово'}
               {t.status === 'error' && 'Помилка'}
               <span className={styles.name}> · {t.taskName}</span>
@@ -129,7 +132,12 @@ export function TaskToasts() {
               <button
                 type="button"
                 className={styles.cancelBtn}
-                onClick={(e) => { e.stopPropagation(); api.cancelTask(t.taskId); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Bindings live in a separate running-set — different cancel path
+                  if (t.kind === 'binding') api.cancelFileBinding(t.taskId);
+                  else api.cancelTask(t.taskId);
+                }}
               >
                 Скасувати
               </button>

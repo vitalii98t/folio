@@ -54,7 +54,10 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      # Upload artifacts to the workflow run so you can download them manually
+      # Upload artifacts to the workflow run so you can download them manually.
+      # latest*.yml are the electron-updater feed files — they MUST land in the
+      # GitHub Release next to the installers, otherwise auto-update can't see
+      # new versions.
       - name: Upload Windows artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
@@ -63,6 +66,7 @@ jobs:
           path: |
             release/*.exe
             release/*.exe.blockmap
+            release/latest.yml
           if-no-files-found: error
 
       - name: Upload Linux artifacts
@@ -70,7 +74,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: release/*.AppImage
+          path: |
+            release/*.AppImage
+            release/latest-linux.yml
           if-no-files-found: error
 
       - name: Upload macOS Intel artifact

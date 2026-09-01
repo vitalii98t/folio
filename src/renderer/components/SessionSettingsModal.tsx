@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ChatSession, Integration, ScheduledTask, TaskStatusEvent } from '../../shared/types';
+import type { ChatSession, Integration, ScheduledTask, TaskStatusEvent, ClaudeModelInfo } from '../../shared/types';
 import styles from '../styles/NewSessionModal.module.css';
 import notesStyles from '../styles/SessionSettingsModal.module.css';
 import { McpServersSection } from './McpServersSection';
@@ -10,12 +10,16 @@ const api = (window as any).finmapAgent;
 interface Props {
   session: ChatSession;
   onClose: () => void;
-  onSave: (updates: { name: string; notes: string }) => void;
+  onSave: (updates: { name: string; notes: string; model: string }) => void;
 }
+
+
 
 export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   const [name, setName] = useState(session.name);
   const [notes, setNotes] = useState(session.notes ?? '');
+  const [model, setModel] = useState(session.model ?? '');
+  const [models, setModels] = useState<ClaudeModelInfo[] | null>(null);
   const hasFinmapKey = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
@@ -44,6 +48,16 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
     loadTasks();
   }, [loadIntegrations, loadTasks]);
 
+  // Model list comes from the installed Claude Code (see main/claude-models.ts)
+  // so it reflects the user's actual plan and never goes stale.
+  useEffect(() => {
+    let alive = true;
+    api.listClaudeModels()
+      .then((list: ClaudeModelInfo[]) => { if (alive) setModels(list); })
+      .catch(() => { if (alive) setModels([]); });
+    return () => { alive = false; };
+  }, []);
+
   // Live-refresh tasks when any task status changes for this session
   useEffect(() => {
     const unsub = api.onTaskStatus((e: TaskStatusEvent) => {
@@ -57,7 +71,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (canSave) {
-      onSave({ name: name.trim(), notes: notes.trim() });
+      onSave({ name: name.trim(), notes: notes.trim(), model });
     }
   }
 
@@ -153,6 +167,26 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
     loadTasks();
   }
 
+  // '' = let Claude Code decide. The CLI reports that choice as a "default"
+  // entry — we don't offer it as a model, but we do borrow its description so
+  // the user can see what the default currently resolves to.
+  const cliDefault = models?.find(m => m.value === 'default');
+  const realModels = (models ?? []).filter(m => m.value !== 'default');
+  const modelOptions = [
+    {
+      value: '',
+      label: 'За замовчуванням (як у Claude Code)',
+      description: cliDefault?.description ?? '',
+    },
+    ...realModels.map(m => ({ value: m.value, label: m.displayName, description: m.description })),
+  ];
+  // A model saved earlier may no longer be offered (plan change, new CLI).
+  // Keep it selectable so opening settings doesn't silently reset it.
+  if (model && !modelOptions.some(o => o.value === model)) {
+    modelOptions.push({ value: model, label: model, description: 'Збережений раніше — цей варіант більше не пропонує Claude Code' });
+  }
+  const selectedModel = modelOptions.find(o => o.value === model);
+
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={`${styles.modal} ${notesStyles.wide}`} onClick={e => e.stopPropagation()}>
@@ -239,6 +273,29 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
           </div>
 
           <label className={styles.field}>
+            <span>Модель Claude</span>
+            <select
+              value={model}
+              onChange={e => setModel(e.target.value)}
+              disabled={models === null}
+              style={{ width: '100%', padding: '8px 10px', background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 6, color: '#fff', fontSize: 13, opacity: models === null ? 0.6 : 1 }}
+            >
+              {models === null ? (
+                <option value={model}>Завантажую список моделей…</option>
+              ) : (
+                modelOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))
+              )}
+            </select>
+            <small className={styles.hint}>
+              {selectedModel?.description
+                ? `${selectedModel.description}. Діє на чат і фонові задачі цієї компанії.`
+                : 'Діє на чат і фонові задачі цієї компанії. Список моделей — ті, що доступні твоєму Claude Code.'}
+            </small>
+          </label>
+
+          <label className={styles.field}>
             <span>Нотатки для асистента</span>
             <textarea
               className={notesStyles.notes}
@@ -272,8 +329,11 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                     <div className={notesStyles.rowHeader}>
                     <div className={notesStyles.rowMain}>
                       <div className={notesStyles.rowTitle}>
-                        <span className={`${notesStyles.statusDot} ${intg.enabled ? notesStyles.on : notesStyles.off}`} />
+                        <span className={`${notesStyles.statusDot} ${intg.enabled ? (intg.lastStatus === 'error' ? notesStyles.err : notesStyles.on) : notesStyles.off}`} />
                         <span className={notesStyles.rowName}>{intg.serviceName}</span>
+                        {intg.lastStatus === 'error' && (
+                          <span className={notesStyles.errBadge} title="Останній синк завершився помилкою. Інтервал тимчасово збільшено (backoff)">помилка</span>
+                        )}
                       </div>
                       <div className={notesStyles.rowMeta}>
                         <span>→ {intg.finmapAccountName ?? intg.finmapAccountId}</span>

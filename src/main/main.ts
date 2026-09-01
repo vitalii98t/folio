@@ -46,6 +46,8 @@ function openTerminalWithCommand(command: string) {
 import { SessionStore } from './session-store';
 import { AgentManager } from './agent-manager';
 import { SyncScheduler } from './sync-scheduler';
+import { setupAutoUpdater } from './updater';
+import { listClaudeModels } from './claude-models';
 import { installBundledSkills } from './skills-installer';
 import { setupBundledBinariesPath } from './bundled-binaries';
 import { parseFileToText } from './file-parser';
@@ -70,27 +72,27 @@ const syncScheduler = new SyncScheduler(
     console.error(`[Sync] Error: ${integration.serviceName}:`, error);
     mainWindow?.webContents.send('sync-status', integration.id, 'error', error);
   },
-  (task) => {
+  (task, kind) => {
     console.log(`[Task] Starting: ${task.name}`);
     mainWindow?.webContents.send(IPC.TASK_STATUS, {
-      taskId: task.id, sessionId: task.sessionId, taskName: task.name, status: 'start',
+      taskId: task.id, sessionId: task.sessionId, taskName: task.name, kind: kind ?? 'task', status: 'start',
     });
   },
-  (task, result) => {
+  (task, result, kind) => {
     console.log(`[Task] Done: ${task.name}`);
     mainWindow?.webContents.send(IPC.TASK_STATUS, {
-      taskId: task.id, sessionId: task.sessionId, taskName: task.name, status: 'done', result,
+      taskId: task.id, sessionId: task.sessionId, taskName: task.name, kind: kind ?? 'task', status: 'done', result,
     });
   },
-  (task, error) => {
+  (task, error, kind) => {
     console.error(`[Task] Error: ${task.name}:`, error);
     mainWindow?.webContents.send(IPC.TASK_STATUS, {
-      taskId: task.id, sessionId: task.sessionId, taskName: task.name, status: 'error', result: error,
+      taskId: task.id, sessionId: task.sessionId, taskName: task.name, kind: kind ?? 'task', status: 'error', result: error,
     });
   },
-  (task, toolName) => {
+  (task, toolName, kind) => {
     mainWindow?.webContents.send(IPC.TASK_STATUS, {
-      taskId: task.id, sessionId: task.sessionId, taskName: task.name, status: 'progress', currentTool: toolName,
+      taskId: task.id, sessionId: task.sessionId, taskName: task.name, kind: kind ?? 'task', status: 'progress', currentTool: toolName,
     });
   },
 );
@@ -167,6 +169,19 @@ async function createWindow() {
 // ── IPC Handlers ──────────────────────────────────────────────
 
 function setupIPC() {
+  // App version — single source of truth is package.json `version`, read via
+  // app.getVersion(). Renderer shows it in the sidebar; after an auto-update
+  // it reflects the new build automatically (no hardcoded string to bump).
+  ipcMain.handle(IPC.GET_APP_VERSION, async () => {
+    return app.getVersion();
+  });
+
+  // Model picker options. Asks the installed Claude Code which models the
+  // user's plan actually offers instead of shipping a list that goes stale.
+  ipcMain.handle(IPC.LIST_CLAUDE_MODELS, async () => {
+    return listClaudeModels(agentManager.getWorkspaceCwd());
+  });
+
   // Claude Code status check
   ipcMain.handle(IPC.CHECK_CLAUDE_STATUS, async () => {
     return checkClaudeCodeStatus();
@@ -479,6 +494,9 @@ function setupIPC() {
   ipcMain.handle(IPC.TRIGGER_FILE_BINDING, async (_event, id: string) => {
     syncScheduler.triggerBinding(id);
   });
+  ipcMain.handle(IPC.CANCEL_FILE_BINDING, async (_event, id: string) => {
+    syncScheduler.cancelBinding(id);
+  });
 
   // Manual trigger for an already-scheduled task — runs it immediately
   // regardless of the scheduler tick. Useful for testing or "run now".
@@ -565,8 +583,16 @@ app.whenReady().then(() => {
   agentManager.setWorkspaceCwd(workspaceCwd);
   console.log(`[Folio] Workspace ready at ${workspaceCwd} (${installed} skill(s))`);
 
+  // Warm the model list in the background — the CLI spawn takes a few seconds
+  // and we'd rather pay it here than when the user opens session settings.
+  setTimeout(() => { listClaudeModels(workspaceCwd).catch(() => {}); }, 20_000);
+
   setupIPC();
   createWindow();
+
+  // Background download of new releases from GitHub; banner in renderer
+  // when ready. No-op in dev and on macOS (unsigned build).
+  setupAutoUpdater(() => mainWindow);
 
   // Start auto-sync scheduler for integrations
   syncScheduler.start();

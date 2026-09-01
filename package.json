@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Folio — intelligent desktop assistant for Finmap",
   "author": "vitalii98t",
   "homepage": "https://finmap.online",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.0",
+    "electron-updater": "^6.3.9",
     "pdf-parse": "^1.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -53,6 +54,11 @@
   "build": {
     "appId": "online.finmap.folio",
     "productName": "Folio",
+    "publish": {
+      "provider": "github",
+      "owner": "vitalii98t",
+      "repo": "folio"
+    },
     "directories": {
       "output": "release"
     },
