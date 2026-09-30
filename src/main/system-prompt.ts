@@ -129,6 +129,14 @@ Pass them in \`categoryIds\` to get ONLY uncategorized operations — do NOT fet
 ✅ GOOD: \`get_operations({ accountIds: [A], categoryIds: ['69e890516ba527a7d35ac320'], startDate, endDate })\`
 
 Each extra operation fetched = tokens + latency + rate-limit cost. Narrow the query before calling.
+
+## ⏱ Finmap rate limits — 10 requests / 5 s, 120 / minute per company
+The quota is shared by every tool call in this chat, every subagent, background syncs and any other integration of this company. Folio queues Finmap calls automatically (you never see a 429 — calls just take longer), so plan for throughput instead of retrying:
+- One \`get_operations\` page of 100 beats several small pages. Fetch reference lists (accounts, categories, counterparties) ONCE per conversation and reuse the IDs.
+- Bulk writes run at about 2 operations per second. For 50+ creates tell the user roughly how long it will take before starting.
+- To change or delete something that was imported with an \`externalId\`, pass \`externalId\` to \`patch_operation\` / \`delete_operation\` / \`update_invoice\` / \`delete_invoice\` directly — no lookup call first.
+- Invoice goods accept \`label\` (find-or-create), so don't call create_invoice_good before create_invoice.
+- \`download_invoice_pdf\` saves the rendered invoice to Downloads/Folio and opens the folder.
 `;
 
 /**
@@ -206,7 +214,8 @@ You have full Finmap API access via tools (operations, categories, tags, project
 1. Resolve names to IDs via \`get_*\` tools
 2. Auto-create missing entities silently
 3. Never wait for confirmation — auto-approve is on for this run
-4. Use server-side filters in \`get_operations\` (accountIds, categoryIds, types, startDate/endDate, sumFrom/sumTo, search, externalIds via search) — DON'T fetch all and filter
+4. Use server-side filters in \`get_operations\` (accountIds, categoryIds, types, startDate/endDate, sumFrom/sumTo, search) — DON'T fetch all and filter
+5. Finmap allows 10 requests / 5 s and 120 / minute per company; Folio queues calls for you, and background runs yield to the user's chat. Keep the request count low: pages of 100, reference lists fetched once, and update/delete synced items by \`externalId\` (\`patch_operation\` / \`delete_operation\` accept it) instead of looking them up first.
 
 ## ⚡ Bundled runtimes — don't warn about install
 Folio bundles \`uv\`, \`uvx\`, \`node\`, \`npm\`, \`npx\` and prepends them to PATH. Never add "you need to install uv/Node" warnings to your responses — those runtimes are guaranteed to be on PATH for any spawned MCP server. Stale advice confuses users.
@@ -238,3 +247,16 @@ If this task aggregates rows from an external source (Google Sheets, Drive): rea
 End with a one-line summary: "Created N, skipped M (duplicates), errors K". No markdown tables, no charts — this output goes into a notification toast, keep it terse.
 `;
 
+
+/** Appended to interactive (non-background) prompts. Folio's subagents are
+ *  defined in subagents.ts; the SDK exposes them to Claude through the
+ *  Task/Agent tool. */
+export const SUBAGENTS_PROMPT = `
+
+## Parallel work — subagents
+You can delegate to subagents with the Task/Agent tool. Each runs in its own context and returns one compact result; the user sees them as live agent cards.
+- When a request splits into INDEPENDENT parts (several periods, accounts, projects, statements, or research + data), launch one subagent per part IN A SINGLE MESSAGE so they run in parallel, then combine their results yourself.
+- Use subagents for read-only analysis and research. Do every create/update/delete yourself in the main thread, so the user confirms changes in order.
+- Don't delegate a single simple lookup — one tool call is faster than an agent.
+- Give each subagent a complete, standalone task: IDs or exact names, the date range, what to return. It cannot see this conversation.
+- Finmap subagents share this company's request quota (10 / 5 s). More than 3–4 Finmap analysts at once only queue behind each other — split by the biggest independent slices, not by every small detail. Resolve shared IDs (accounts, categories) yourself first and pass them in, so each agent doesn't re-fetch the same lists.`;

@@ -2,6 +2,7 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
+import { useT } from '../i18n';
 import styles from '../styles/ChartBlock.module.css';
 
 interface SeriesDef {
@@ -31,16 +32,38 @@ interface Props {
 }
 
 export function ChartBlock({ raw }: Props) {
-  let spec: ChartSpec;
+  const { t } = useT();
+  let parsed: unknown;
   try {
-    spec = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch (err) {
-    return <div className={styles.error}>Некоректний JSON графіка</div>;
+    return <div className={styles.error}>{t('chart.invalidJson')}</div>;
   }
 
-  if (!spec.data?.length) {
-    return <div className={styles.error}>Графік без даних</div>;
+  // The model writes this JSON — anything can come back (null, an array,
+  // data as a string, rows as numbers). Validate before recharts sees it.
+  if (!isPlainObject(parsed) || !Array.isArray(parsed.data) || !parsed.data.every(isPlainObject)) {
+    return <div className={styles.error}>{t('chart.invalidJson')}</div>;
   }
+  if (parsed.data.length === 0) {
+    return <div className={styles.error}>{t('chart.noData')}</div>;
+  }
+
+  const spec: ChartSpec = {
+    type: parsed.type === 'line' || parsed.type === 'pie' ? parsed.type : 'bar',
+    title: typeof parsed.title === 'string' ? parsed.title : undefined,
+    xKey: typeof parsed.xKey === 'string' ? parsed.xKey : undefined,
+    series: Array.isArray(parsed.series)
+      ? parsed.series
+          .filter((s): s is Record<string, unknown> => isPlainObject(s) && typeof s.key === 'string')
+          .map(s => ({
+            key: s.key as string,
+            label: typeof s.label === 'string' ? s.label : undefined,
+            color: typeof s.color === 'string' ? s.color : undefined,
+          }))
+      : undefined,
+    data: parsed.data as Array<Record<string, any>>,
+  };
 
   return (
     <div className={styles.wrapper}>
@@ -52,6 +75,10 @@ export function ChartBlock({ raw }: Props) {
       </div>
     </div>
   );
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 function renderChart(spec: ChartSpec) {
@@ -125,6 +152,7 @@ function renderChart(spec: ChartSpec) {
 }
 
 function ChartTooltip({ active, payload, label }: any) {
+  const { locale } = useT();
   if (!active || !payload?.length) return null;
   return (
     <div className={styles.tooltip}>
@@ -133,7 +161,7 @@ function ChartTooltip({ active, payload, label }: any) {
         <div key={i} className={styles.tooltipRow}>
           <span className={styles.tooltipDot} style={{ background: p.color ?? p.payload?.fill }} />
           <span className={styles.tooltipName}>{p.name}</span>
-          <span className={styles.tooltipValue}>{formatValue(p.value)}</span>
+          <span className={styles.tooltipValue}>{formatValue(p.value, locale)}</span>
         </div>
       ))}
     </div>
@@ -154,9 +182,9 @@ function ChartLegend({ payload }: any) {
   );
 }
 
-function formatValue(v: unknown): string {
+function formatValue(v: unknown, locale: string): string {
   if (typeof v === 'number') {
-    return v.toLocaleString('uk-UA', { maximumFractionDigits: 2 });
+    return v.toLocaleString(locale, { maximumFractionDigits: 2 });
   }
   return String(v);
 }

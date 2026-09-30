@@ -1,60 +1,39 @@
 import { FinmapAPI } from './finmap-api';
 import { buildFinmapMcpServer, MUTATION_TOOLS } from './mcp-tools';
-import { SYSTEM_PROMPT, BACKGROUND_SYSTEM_PROMPT, MCP_ONLY_SYSTEM_PROMPT } from './system-prompt';
+import { SYSTEM_PROMPT, BACKGROUND_SYSTEM_PROMPT, MCP_ONLY_SYSTEM_PROMPT, SUBAGENTS_PROMPT } from './system-prompt';
+import { FINMAP_AGENTS, MCP_ONLY_AGENTS } from './subagents';
 import { getClaudePath, isAuthError } from './claude-status';
+import { mcpHttpHost, type McpHttpRoute } from './mcp-http-host';
 import type { SessionStore } from './session-store';
-import type { ChatSession } from '../shared/types';
+import type { ChatSession, MessageUsage, ContextUsage, AgentEvent, RateLimitSnapshot, RateLimitWindow } from '../shared/types';
 
-let _sdk: typeof import('@anthropic-ai/claude-code') | null = null;
-async function getSDK() {
-  if (!_sdk) _sdk = await import('@anthropic-ai/claude-code');
+type SDK = typeof import('@anthropic-ai/claude-agent-sdk');
+type PermissionResult = import('@anthropic-ai/claude-agent-sdk').PermissionResult;
+type CanUseTool = import('@anthropic-ai/claude-agent-sdk').CanUseTool;
+type Options = import('@anthropic-ai/claude-agent-sdk').Options;
+type SDKResultMessage = import('@anthropic-ai/claude-agent-sdk').SDKResultMessage;
+
+let _sdk: SDK | null = null;
+async function getSDK(): Promise<SDK> {
+  if (!_sdk) _sdk = await import('@anthropic-ai/claude-agent-sdk');
   return _sdk;
-}
-
-type PermissionResult = import('@anthropic-ai/claude-code').PermissionResult;
-
-/** One mutation awaiting user confirmation. Multiple can be pending at once
- *  (Claude may call several tools in parallel) — they queue FIFO. */
-interface PendingConfirm {
-  toolName: string;
-  input: Record<string, unknown>;
-  resolve: (result: PermissionResult) => void;
-  /** Auto-deny timer so an unanswered confirmation can't hang the run forever
-   *  (e.g. UI crashed mid-confirmation). */
-  timer: ReturnType<typeof setTimeout>;
 }
 
 /** How long a confirmation may sit unanswered before we auto-deny it. */
 const CONFIRM_TIMEOUT_MS = 10 * 60_000;
 
-interface ActiveSession {
-  api: FinmapAPI;
-  mcpServer: Awaited<ReturnType<typeof buildFinmapMcpServer>> | null;
-  claudeSessionId: string | null;
-  abortController: AbortController | null;
-  /** FIFO queue of mutations awaiting user confirmation */
-  pendingConfirms: PendingConfirm[];
-  /** When true — auto-approve all mutations without asking user */
-  autoApprove: boolean;
-}
-
-// Read-only tools — SDK auto-approves these via --allowedTools flag (canUseTool skipped).
-// Mutations are intentionally NOT listed here, so canUseTool fires and we can prompt the user.
+/**
+ * Read-only tools the SDK auto-approves (canUseTool is skipped for them).
+ * Anything that changes state is deliberately NOT here — it must reach
+ * canUseTool so the user can confirm it (see MUTATION_TOOLS).
+ */
 const ALLOWED_TOOLS = [
-  // Built-in Claude Code tools needed for skill discovery & loading.
-  // `Read` lets Claude pull SKILL.md and supporting reference files when a
-  // task matches a skill's description. `Glob` lets it list available skills.
-  'Read',
-  'Glob',
+  // Built-ins: skill loading, file reading (attachments), web research,
+  // subagents, deferred-tool loading. All read-only.
+  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Skill', 'ToolSearch',
+  'Task', 'Agent', 'TodoWrite', 'ListMcpResourcesTool', 'ReadMcpResourceTool',
 
-  // Web access — used by `mcp-setup` skill to search for and read MCP server
-  // documentation when user asks to connect a new service (Telegram, Figma,
-  // Google Drive etc.). Read-only, safe to auto-approve.
-  'WebFetch',
-  'WebSearch',
-
-  // Finmap MCP tools (read-only)
-  'mcp__finmap__http_request',
+  // Finmap reads
   'mcp__finmap__get_accounts',
   'mcp__finmap__get_currencies',
   'mcp__finmap__get_exchange_rates',
@@ -69,58 +48,116 @@ const ALLOWED_TOOLS = [
   'mcp__finmap__get_invoice_details',
   'mcp__finmap__get_invoice_goods',
   'mcp__finmap__get_invoice_companies',
+  // Reads the invoice and writes a PDF into Downloads/Folio — no Finmap change.
+  'mcp__finmap__download_invoice_pdf',
   'mcp__finmap__get_webhooks',
   'mcp__finmap__list_integrations',
-  'mcp__finmap__toggle_integration',
-
-  // Pure computation — deterministic matcher used by reconcile-statement skill.
-  // Read-only; no API side effects.
+  // Deterministic matcher used by reconcile-statement — pure computation.
   'mcp__finmap__reconcile_match',
-
-  // MCP self-management. `list_mcp_servers` is read-only and auto-approves;
-  // add/update/remove are in MUTATION_TOOLS and route through user confirmation.
+  // Folio self-management: listing only. add/update/remove confirm.
   'mcp__finmap__list_mcp_servers',
-  'mcp__finmap__add_mcp_server',
-  'mcp__finmap__update_mcp_server',
-  'mcp__finmap__remove_mcp_server',
-  // Saves user-pasted service account JSON to userData/credentials. Local
-  // file-write only, no network — auto-approve so the wizard flow stays
-  // smooth. add_mcp_server (which actually wires up the credentials) is
-  // still a mutation and confirms.
-  'mcp__finmap__save_service_account_key',
-
-  // File import bindings. Same pattern: list/mark are auto-approved (read +
-  // pure state bookkeeping), create/update/delete confirm via UI.
   'mcp__finmap__list_file_bindings',
-  'mcp__finmap__create_file_binding',
-  'mcp__finmap__update_file_binding',
-  'mcp__finmap__delete_file_binding',
+  'mcp__finmap__list_scheduled_tasks',
+  // Local bookkeeping with no external effect: saving a pasted service
+  // account JSON into userData/credentials, and the dedup ledger for
+  // folder imports.
+  'mcp__finmap__save_service_account_key',
   'mcp__finmap__mark_files_processed',
-
-  // Google Drive direct (via session API key) — read-only public-folder access.
+  // Google Drive reads (public folder via API key)
   'mcp__finmap__gdrive_list_files',
   'mcp__finmap__gdrive_get_file_content',
-
-  // Scheduled-task management. list_scheduled_tasks is read-only; mutations
-  // route through user confirmation (they configure recurring background jobs).
-  'mcp__finmap__list_scheduled_tasks',
-  'mcp__finmap__create_scheduled_task',
-  'mcp__finmap__update_scheduled_task',
-  'mcp__finmap__delete_scheduled_task',
 ];
 
+/** Built-ins that can run commands or change files on the user's machine.
+ *  Folio never needs them; hiding them also keeps the tool list short. */
+const DISALLOWED_TOOLS = [
+  'Bash', 'BashOutput', 'KillShell', 'KillBash', 'PowerShell', 'Monitor',
+  'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
+  'CronCreate', 'CronDelete', 'RemoteTrigger', 'ScheduleWakeup', 'EnterWorktree', 'ExitWorktree', 'Workflow',
+];
+
+/** Non-MCP built-ins canUseTool may allow if they weren't auto-approved. */
+const SAFE_BUILTINS = new Set(ALLOWED_TOOLS.filter(t => !t.startsWith('mcp__')));
+
+const SUBAGENT_TOOLS = new Set(['Task', 'Agent']);
+
+/** Convert the CLI's rate_limit_info into Folio's snapshot. Newer CLIs send
+ *  every window in `unifiedWindows`; older ones only the one that changed. */
+function toRateLimitSnapshot(info: any): RateLimitSnapshot | null {
+  if (!info || typeof info !== 'object') return null;
+  const win = (w: any): RateLimitWindow | undefined =>
+    w && typeof w.utilization === 'number' && typeof w.resetsAt === 'number'
+      ? { utilization: w.utilization, resetsAt: w.resetsAt * 1000 }
+      : undefined;
+  const single = (type: string) =>
+    info.rateLimitType === type ? win({ utilization: info.utilization, resetsAt: info.resetsAt }) : undefined;
+  const fiveHour = win(info.unifiedWindows?.five_hour) ?? single('five_hour');
+  const sevenDay = win(info.unifiedWindows?.seven_day) ?? single('seven_day');
+  if (!fiveHour && !sevenDay) return null;
+  return { status: info.status ?? 'allowed', fiveHour, sevenDay, receivedAt: Date.now() };
+}
+
+/** One mutation awaiting user confirmation. Multiple can be pending at once
+ *  (Claude may call several tools in parallel) — they queue FIFO. */
+interface PendingConfirm {
+  toolName: string;
+  input: Record<string, unknown>;
+  resolve: (result: PermissionResult) => void;
+  /** Auto-deny timer so an unanswered confirmation can't hang the run forever. */
+  timer: ReturnType<typeof setTimeout>;
+}
+
+export interface SendHandlers {
+  onChunk?: (text: string) => void;
+  onToolCall?: (toolName: string, input: Record<string, unknown>) => void;
+  /** `usage` is present when the SDK delivered a result message. */
+  onDone: (fullText: string, usage?: MessageUsage) => void;
+  onError: (error: string) => void;
+  /** A mutation needs the user's confirmation (chat runs only). */
+  onToolPermission?: (toolName: string, input: Record<string, unknown>) => void;
+  /** Claude Code's own login failed. Absent → reported through onError. */
+  onAuthError?: (message: string) => void;
+  /** Live context-window fill on every API turn. */
+  onUsage?: (usage: ContextUsage) => void;
+  /** Claude Code compacted the conversation; `preTokens` = size before. */
+  onCompact?: (preTokens: number) => void;
+  /** Subagent lifecycle. */
+  onAgent?: (event: AgentEvent) => void;
+}
+
+export interface SendOptions {
+  /**
+   * Background run (scheduled task, integration sync, folder import):
+   * auto-approves every tool, uses the lean prompt, starts a fresh Claude
+   * conversation each time (never resumes or overwrites the chat's), and is
+   * cancelled through the controller the caller passes.
+   */
+  background?: boolean;
+  abortController?: AbortController;
+}
+
 /**
- * Manages Claude Agent SDK sessions with conversation history via resume.
+ * Runs Claude Agent SDK queries for Folio sessions.
+ *
+ * Every call builds its own Finmap client and in-process MCP server: sharing
+ * one server instance between a chat run and a background run on the same
+ * session rebinds its transport and routes tool results to the wrong CLI
+ * process. It also means a changed API key takes effect on the next message.
  */
 export class AgentManager {
-  private sessions = new Map<string, ActiveSession>();
   private sessionStore: SessionStore;
-  /**
-   * Working directory we hand to the Claude Agent SDK. Set by main on startup
-   * to a workspace dir that contains `.claude/skills/` so Claude Code can
-   * auto-discover Folio's bundled skills. Defaults to process.cwd() until set.
-   */
   private workspaceCwd: string = process.cwd();
+  /** Chat (interactive) run per session — what the Stop button cancels. */
+  private chatRuns = new Map<string, AbortController>();
+  /** Pending confirmations per session (chat runs only). */
+  private pendingConfirms = new Map<string, PendingConfirm[]>();
+  private autoApprove = new Map<string, boolean>();
+  /** Resume id of each session's chat conversation (mirrors the store). */
+  private claudeSessionIds = new Map<string, string>();
+  /** Account-wide plan limits — last snapshot from any run. */
+  private rateLimit: RateLimitSnapshot | null = null;
+  /** Set by main to broadcast plan-limit updates to the window. */
+  onRateLimit?: (snapshot: RateLimitSnapshot) => void;
 
   constructor(sessionStore: SessionStore) {
     this.sessionStore = sessionStore;
@@ -134,284 +171,362 @@ export class AgentManager {
     return this.workspaceCwd;
   }
 
-  private getOrCreate(session: ChatSession): ActiveSession {
-    let active = this.sessions.get(session.id);
-    if (!active) {
-      active = {
-        api: new FinmapAPI(session.apiKey),
-        mcpServer: null,
-        claudeSessionId: session.claudeSessionId || null,
-        abortController: null,
-        pendingConfirms: [],
-        autoApprove: false,
-      };
-      this.sessions.set(session.id, active);
-    }
-    return active;
-  }
-
   setAutoApprove(sessionId: string, enabled: boolean) {
-    const active = this.sessions.get(sessionId);
-    if (active) active.autoApprove = enabled;
+    this.autoApprove.set(sessionId, enabled);
   }
 
   getAutoApprove(sessionId: string): boolean {
-    return this.sessions.get(sessionId)?.autoApprove ?? false;
+    return this.autoApprove.get(sessionId) ?? false;
   }
 
-  /** Get current Claude session ID for a Finmap session (for debugging) */
+  getRateLimit(): RateLimitSnapshot | null {
+    return this.rateLimit;
+  }
+
   getClaudeSessionId(sessionId: string): string | null {
-    const active = this.sessions.get(sessionId);
-    if (active?.claudeSessionId) return active.claudeSessionId;
-    // Fallback to persisted value
-    const session = this.sessionStore.get(sessionId);
-    return session?.claudeSessionId ?? null;
+    return this.claudeSessionIds.get(sessionId) ?? this.sessionStore.get(sessionId)?.claudeSessionId ?? null;
   }
 
   removeSession(id: string) {
-    const active = this.sessions.get(id);
-    if (active?.abortController) active.abortController.abort();
-    this.sessions.delete(id);
+    this.cancel(id);
+    this.denyAllPending(id, 'Session removed');
+    this.claudeSessionIds.delete(id);
+    this.autoApprove.delete(id);
   }
 
-  /** Start a fresh Claude conversation — clears session_id so next message creates new chat */
+  /** Start a fresh Claude conversation for the chat — next message won't resume. */
   resetClaudeSession(sessionId: string) {
-    const active = this.sessions.get(sessionId);
-    if (active) {
-      if (active.abortController) active.abortController.abort();
-      active.claudeSessionId = null;
-    }
+    this.cancel(sessionId);
+    this.claudeSessionIds.delete(sessionId);
     this.sessionStore.update(sessionId, { claudeSessionId: undefined });
   }
 
+  /** Cancel the session's CHAT run. Background runs are cancelled through
+   *  the controller their caller owns. */
   cancel(sessionId: string) {
-    const active = this.sessions.get(sessionId);
-    if (active?.abortController) {
-      active.abortController.abort();
-      active.abortController = null;
+    const ac = this.chatRuns.get(sessionId);
+    if (ac) {
+      ac.abort();
+      this.chatRuns.delete(sessionId);
     }
   }
 
-  /** Confirm the OLDEST pending mutation (FIFO — matches the order the UI
-   *  shows them in). Returns false if nothing was pending. */
+  /** Confirm the OLDEST pending mutation (FIFO — the order the UI shows). */
   async confirmMutation(sessionId: string): Promise<boolean> {
-    const active = this.sessions.get(sessionId);
-    const pending = active?.pendingConfirms.shift();
-    if (pending) {
-      clearTimeout(pending.timer);
-      // Use original input — passing {} would execute tool with empty data!
-      pending.resolve({ behavior: 'allow', updatedInput: pending.input });
-      return true;
-    }
-    return false;
+    const pending = this.pendingConfirms.get(sessionId)?.shift();
+    if (!pending) return false;
+    clearTimeout(pending.timer);
+    // Pass the original input — {} would execute the tool with empty data.
+    pending.resolve({ behavior: 'allow', updatedInput: pending.input });
+    return true;
   }
 
   async rejectMutation(sessionId: string): Promise<boolean> {
-    const active = this.sessions.get(sessionId);
-    const pending = active?.pendingConfirms.shift();
-    if (pending) {
-      clearTimeout(pending.timer);
-      pending.resolve({ behavior: 'deny', message: 'User rejected this action.' });
-      return true;
-    }
-    return false;
+    const pending = this.pendingConfirms.get(sessionId)?.shift();
+    if (!pending) return false;
+    clearTimeout(pending.timer);
+    pending.resolve({ behavior: 'deny', message: 'User rejected this action.' });
+    return true;
   }
 
-  async sendMessage(
-    session: ChatSession,
-    userMessage: string,
-    onChunk: (text: string) => void,
-    onToolCall: (toolName: string, input: Record<string, unknown>) => void,
-    onDone: (fullText: string) => void,
-    onError: (error: string) => void,
-    onToolPermission?: (toolName: string, input: Record<string, unknown>) => void,
-    /** Force auto-approve of all mutations regardless of session toggle.
-     *  Used for scheduled tasks which have no UI to confirm. */
-    forceAutoApprove?: boolean,
-    /** Called when Claude SDK reports an auth/expired-token error so the UI
-     *  can prompt the user to re-login without losing chat context. */
-    onAuthError?: (message: string) => void,
-  ) {
-    const active = this.getOrCreate(session);
-    const abortController = new AbortController();
-    active.abortController = abortController;
+  private denyAllPending(sessionId: string, message: string) {
+    const queue = this.pendingConfirms.get(sessionId) ?? [];
+    for (const p of queue.splice(0)) {
+      clearTimeout(p.timer);
+      p.resolve({ behavior: 'deny', message });
+    }
+  }
 
-    if (!active.mcpServer) {
-      active.mcpServer = await buildFinmapMcpServer(active.api, this.sessionStore, session.id);
+  async sendMessage(session: ChatSession, userMessage: string, h: SendHandlers, opts: SendOptions = {}) {
+    const background = opts.background === true;
+    const abortController = opts.abortController ?? new AbortController();
+    if (!background) {
+      // A second chat message while one runs replaces it (the UI blocks this,
+      // but never leave an orphaned controller behind).
+      this.chatRuns.get(session.id)?.abort();
+      this.chatRuns.set(session.id, abortController);
     }
 
-    // Resolve user-configured MCP servers for this session. Each enabled one
-    // is passed to Claude Agent SDK as a stdio child-process spec — SDK spawns
-    // it, manages its lifecycle, and exposes its tools as mcp__<name>__<tool>.
-    const userMcpConfigs = this.sessionStore.getMcpServers(session.id).filter(s => s.enabled);
-    const userMcpServers: Record<string, { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> }> = {};
-    for (const cfg of userMcpConfigs) {
-      userMcpServers[cfg.name] = {
-        type: 'stdio',
-        command: cfg.command,
-        args: cfg.args,
-        ...(cfg.env && Object.keys(cfg.env).length > 0 ? { env: cfg.env } : {}),
-      };
-    }
-    // Fast lookup: tool prefix → autoApproveAll flag
-    const autoApproveByPrefix = new Map<string, boolean>();
-    for (const cfg of userMcpConfigs) {
-      autoApproveByPrefix.set(`mcp__${cfg.name}__`, cfg.autoApproveAll);
-    }
+    const hasFinmap = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
+    const api = new FinmapAPI(session.apiKey, { priority: background ? 'background' : 'interactive' });
+    let httpRoute: McpHttpRoute | null = null;
 
     try {
       const sdk = await getSDK();
-      let fullResponse = '';
+      // Chat runs serve Finmap tools over local HTTP so subagents get them
+      // too (the CLI keeps in-process servers to the main thread). Background
+      // runs have no subagents and keep the in-process server.
+      let finmapServer: any;
+      if (background) {
+        finmapServer = await buildFinmapMcpServer(api, this.sessionStore, session.id);
+      } else {
+        httpRoute = await mcpHttpHost.register(async () =>
+          (await buildFinmapMcpServer(api, this.sessionStore, session.id)).instance);
+        // Generous per-call timeout: a tool that pages through operations
+        // may wait for Finmap's rate-limit windows (10 / 5 s, 120 / min).
+        finmapServer = { ...httpRoute.config, timeout: 5 * 60_000 };
+      }
 
-      const canUseTool: import('@anthropic-ai/claude-code').CanUseTool = async (toolName, input, { signal }) => {
-        // Session-wide auto-approve OR background run → allow everything.
-        if (active.autoApprove || forceAutoApprove) {
+      // User-configured MCP servers (stdio child processes the SDK spawns).
+      const userMcpConfigs = this.sessionStore.getMcpServers(session.id)
+        .filter(s => s.enabled && s.name !== 'finmap');
+      const userMcpServers: Record<string, { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> }> = {};
+      for (const cfg of userMcpConfigs) {
+        userMcpServers[cfg.name] = {
+          type: 'stdio',
+          command: cfg.command,
+          args: cfg.args,
+          ...(cfg.env && Object.keys(cfg.env).length > 0 ? { env: cfg.env } : {}),
+        };
+      }
+      const autoApproveByPrefix = new Map<string, boolean>();
+      for (const cfg of userMcpConfigs) autoApproveByPrefix.set(`mcp__${cfg.name}__`, cfg.autoApproveAll);
+
+      const canUseTool: CanUseTool = async (toolName, input, { signal }) => {
+        // Non-MCP built-ins: only the read-only set. Shell/file-writing tools
+        // are also in disallowedTools; this is the backstop for any new
+        // built-in a future CLI adds.
+        if (!toolName.startsWith('mcp__')) {
+          return SAFE_BUILTINS.has(toolName)
+            ? { behavior: 'allow', updatedInput: input }
+            : { behavior: 'deny', message: `Tool "${toolName}" is not available in Folio.` };
+        }
+
+        if (background || this.getAutoApprove(session.id)) {
           return { behavior: 'allow', updatedInput: input };
         }
 
-        // Folio's own Finmap tools — known mutation list, ask only on writes.
-        if (toolName.startsWith('mcp__finmap__')) {
-          if (!MUTATION_TOOLS.has(toolName)) {
-            return { behavior: 'allow', updatedInput: input };
-          }
-          // Fall through to user-confirmation flow below.
+        let needsConfirm: boolean;
+        if (toolName === 'mcp__finmap__http_request') {
+          // Reads are fine; anything that can send data out or change a
+          // remote system is confirmed.
+          const method = String((input as any)?.method ?? 'GET').toUpperCase();
+          needsConfirm = method !== 'GET' && method !== 'HEAD';
+        } else if (toolName.startsWith('mcp__finmap__')) {
+          needsConfirm = MUTATION_TOOLS.has(toolName);
         } else {
-          // User-configured MCP tool — auto-approve if that server allows;
-          // otherwise route through confirmation.
-          let matched = false;
-          for (const [prefix, autoOk] of autoApproveByPrefix) {
-            if (toolName.startsWith(prefix)) {
-              matched = true;
-              if (autoOk) return { behavior: 'allow', updatedInput: input };
-              break;
-            }
-          }
-          // Tool name doesn't match any known prefix — unknown source, be
-          // permissive (Claude Code built-ins like Read/Glob already on
-          // allowedTools, but anything else falls through here).
-          if (!matched) {
-            return { behavior: 'allow', updatedInput: input };
-          }
+          const prefix = [...autoApproveByPrefix.keys()].find(p => toolName.startsWith(p));
+          // Unknown MCP source → confirm rather than trust.
+          needsConfirm = prefix ? !autoApproveByPrefix.get(prefix) : true;
         }
+        if (!needsConfirm) return { behavior: 'allow', updatedInput: input };
 
-        // Needs user confirmation — queue it (Claude can fire several
-        // mutations in parallel; each gets its own entry and the UI walks
-        // the queue FIFO).
-        onToolPermission?.(toolName, input);
+        h.onToolPermission?.(toolName, input);
         return new Promise<PermissionResult>((resolve) => {
+          const queue = this.pendingConfirms.get(session.id) ?? [];
+          this.pendingConfirms.set(session.id, queue);
           const entry: PendingConfirm = {
             toolName,
             input,
             resolve,
             timer: setTimeout(() => {
-              // Nobody answered — deny so the run can finish instead of
-              // hanging forever (UI may have crashed or user walked away).
-              const idx = active.pendingConfirms.indexOf(entry);
-              if (idx !== -1) active.pendingConfirms.splice(idx, 1);
+              const idx = queue.indexOf(entry);
+              if (idx !== -1) queue.splice(idx, 1);
               resolve({
                 behavior: 'deny',
                 message: 'Користувач не підтвердив дію протягом 10 хвилин — скасовано автоматично.',
               });
             }, CONFIRM_TIMEOUT_MS),
           };
-          active.pendingConfirms.push(entry);
+          queue.push(entry);
           signal.addEventListener('abort', () => {
-            const idx = active.pendingConfirms.indexOf(entry);
-            if (idx !== -1) active.pendingConfirms.splice(idx, 1);
+            const idx = queue.indexOf(entry);
+            if (idx !== -1) queue.splice(idx, 1);
             clearTimeout(entry.timer);
             resolve({ behavior: 'deny', message: 'Cancelled' });
           });
         });
       };
 
-      const claudePath = getClaudePath() || undefined;
-
-      // Three prompt variants:
-      //   • Background runs (scheduled tasks, auto-syncs) — lean prompt, the
-      //     task.prompt itself drives behaviour, skills list is dead weight.
-      //   • Sessions with no Finmap API key — MCP-only orchestrator persona,
-      //     Finmap tools will 401 anyway so we tell Claude not to suggest them.
-      //   • Default interactive session with Finmap — full prompt + skills.
-      const hasFinmap = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
-      const basePrompt = forceAutoApprove
+      // Prompt: lean for background, MCP-only persona without a Finmap key,
+      // full prompt + subagent guidance for interactive chats.
+      const basePrompt = background
         ? BACKGROUND_SYSTEM_PROMPT
-        : hasFinmap ? SYSTEM_PROMPT : MCP_ONLY_SYSTEM_PROMPT;
-      const systemPrompt = session.notes?.trim()
+        : (hasFinmap ? SYSTEM_PROMPT : MCP_ONLY_SYSTEM_PROMPT) + SUBAGENTS_PROMPT;
+      const responseLanguage = this.sessionStore.getSettings().responseLanguage;
+      const languageRule =
+        responseLanguage === 'uk' ? '\n\n## Language\nALWAYS respond in Ukrainian, regardless of the language the user writes in.'
+        : responseLanguage === 'en' ? '\n\n## Language\nALWAYS respond in English, regardless of the language the user writes in.'
+        : '';
+      const systemPrompt = (session.notes?.trim()
         ? `${basePrompt}\n\n## Company context (from user)\n${session.notes.trim()}`
-        : basePrompt;
+        : basePrompt) + languageRule;
 
-      const options: import('@anthropic-ai/claude-code').Options = {
-        customSystemPrompt: systemPrompt,
-        maxTurns: 20,
+      const options: Options = {
+        systemPrompt,
+        maxTurns: background ? 20 : 30,
         abortController,
         canUseTool,
-        // Use Folio's workspace dir so Claude Code auto-discovers our skills
-        // from `<cwd>/.claude/skills/`.
+        // Workspace dir with `.claude/skills/` — Claude Code discovers skills
+        // from the project source. User-level settings (~/.claude) are left
+        // out on purpose so the user's own hooks/permissions/plugins from
+        // their coding setup don't leak into Folio.
         cwd: this.workspaceCwd,
-        pathToClaudeCodeExecutable: claudePath,
-        mcpServers: { finmap: active.mcpServer, ...userMcpServers },
+        settingSources: ['project'],
+        // Only the MCP servers Folio passes — not the user's own .mcp.json,
+        // plugins, or claude.ai connectors (which may even share a name like
+        // "Finmap" and confuse the model).
+        strictMcpConfig: true,
+        env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as Record<string, string>,
+        pathToClaudeCodeExecutable: getClaudePath() || undefined,
+        mcpServers: { ...userMcpServers, finmap: finmapServer },
         allowedTools: ALLOWED_TOOLS,
+        // Background runs don't fan out into subagents — keeps unattended
+        // cost predictable.
+        disallowedTools: background ? [...DISALLOWED_TOOLS, 'Task', 'Agent'] : DISALLOWED_TOOLS,
         permissionMode: 'default',
+        // Token-level streaming + per-turn usage (context size).
+        includePartialMessages: !background,
+        ...(background ? {} : { agents: hasFinmap ? FINMAP_AGENTS : MCP_ONLY_AGENTS }),
+        stderr: (data: string) => { if (/error/i.test(data)) console.error('[claude]', data.trim()); },
       };
 
-      // Per-session model override. Aliases ("opus"/"sonnet"/"haiku") are
-      // resolved by Claude Code itself to the newest model of that tier
-      // available on the user's plan. Unset = Claude Code's own default.
-      if (session.model?.trim()) {
-        options.model = session.model.trim();
-      }
+      // Per-session model; aliases resolve to the newest model of the tier.
+      if (session.model?.trim()) options.model = session.model.trim();
 
-      // Resume previous conversation to maintain history.
-      // Do NOT set `continue: true` — it overrides `resume` and latches to the
-      // newest session in cwd, which can hijack another Claude Code instance.
-      if (active.claudeSessionId) {
-        options.resume = active.claudeSessionId;
-      }
+      // Chat runs resume the chat conversation; background runs never do, so
+      // task prompts don't end up in the user's chat history.
+      const resumeId = background ? null : this.getClaudeSessionId(session.id);
+      if (resumeId) options.resume = resumeId;
 
       const stream = sdk.query({ prompt: userMessage, options });
+
+      let fullResponse = '';
+      // With includePartialMessages text arrives as deltas and the complete
+      // `assistant` message follows — append once. No deltas (older CLI or
+      // background run) → fall back to the blocks.
+      let sawTextDelta = false;
+      let turnInputTokens = 0;
+      let contextTokens: number | undefined;
+      let contextWindow: number | undefined = session.contextWindow;
+      let resultUsage: MessageUsage | undefined;
+      // With background subagents the CLI may emit several `result`
+      // messages per query (the turn ends, a task finishes, the turn
+      // resumes). Token counts add up; cost is cumulative in each result.
+      const tokenSum = { input: 0, cacheRead: 0, output: 0, turns: 0 };
+      // Subagents: CLI task id ↔ the Task tool_use that spawned it.
+      const taskByToolUse = new Map<string, string>();
+      const openTasks = new Set<string>();
 
       for await (const message of stream) {
         if (abortController.signal.aborted) break;
 
-        // Capture session ID from any message for resume — persist to disk
-        if ('session_id' in message && message.session_id && !active.claudeSessionId) {
-          active.claudeSessionId = message.session_id;
+        if (!background && 'session_id' in message && message.session_id && !this.claudeSessionIds.get(session.id)) {
+          this.claudeSessionIds.set(session.id, message.session_id);
           this.sessionStore.update(session.id, { claudeSessionId: message.session_id });
         }
 
+        if ((message as any).type === 'rate_limit_event') {
+          const snap = toRateLimitSnapshot((message as any).rate_limit_info);
+          if (snap) {
+            this.rateLimit = snap;
+            this.onRateLimit?.(snap);
+          }
+          continue;
+        }
+
         switch (message.type) {
+          case 'stream_event': {
+            if (message.parent_tool_use_id) break; // subagent text — shown as a card, not in the reply
+            const ev = message.event as any;
+            if (ev?.type === 'message_start') {
+              sawTextDelta = false;
+              const u = ev.message?.usage ?? {};
+              turnInputTokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+              contextTokens = turnInputTokens;
+              h.onUsage?.({ contextTokens: turnInputTokens, contextWindow });
+            } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              sawTextDelta = true;
+              fullResponse += ev.delta.text;
+              h.onChunk?.(ev.delta.text);
+            } else if (ev?.type === 'message_delta') {
+              const afterTurn = turnInputTokens + (ev.usage?.output_tokens ?? 0);
+              contextTokens = afterTurn;
+              h.onUsage?.({ contextTokens: afterTurn, contextWindow });
+            }
+            break;
+          }
           case 'assistant': {
             const content = message.message.content;
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (!('type' in block)) continue;
-                if (block.type === 'text' && 'text' in block) {
-                  fullResponse += (block as any).text;
-                  onChunk((block as any).text);
-                } else if (block.type === 'tool_use' && 'name' in block) {
-                  const toolName = (block as any).name as string;
-                  const toolInput = ('input' in block ? (block as any).input : {}) as Record<string, unknown>;
-                  onToolCall(toolName, toolInput);
+            if (!Array.isArray(content)) break;
+            if (message.parent_tool_use_id) {
+              // A subagent's own tool call — surface it on its card.
+              const taskId = taskByToolUse.get(message.parent_tool_use_id);
+              if (!taskId) break;
+              for (const block of content as any[]) {
+                if (block?.type === 'tool_use') h.onAgent?.({ kind: 'progress', id: taskId, tool: block.name });
+              }
+              break;
+            }
+            for (const block of content as any[]) {
+              if (block?.type === 'text' && typeof block.text === 'string') {
+                if (!sawTextDelta) {
+                  fullResponse += block.text;
+                  h.onChunk?.(block.text);
                 }
+              } else if (block?.type === 'tool_use' && typeof block.name === 'string') {
+                // Subagent launches get their own card; don't double-show.
+                if (!SUBAGENT_TOOLS.has(block.name)) h.onToolCall?.(block.name, (block.input ?? {}) as Record<string, unknown>);
               }
             }
             break;
           }
+          case 'system': {
+            const m = message as any;
+            if (m.subtype === 'compact_boundary') {
+              contextTokens = undefined; // next message_start reports the post-compaction size
+              h.onCompact?.(m.compact_metadata?.pre_tokens ?? 0);
+            } else if (m.subtype === 'task_started') {
+              const isAgent = m.task_type === 'local_agent' || typeof m.subagent_type === 'string';
+              if (!isAgent || m.ambient || m.skip_transcript) break;
+              openTasks.add(m.task_id);
+              if (m.tool_use_id) taskByToolUse.set(m.tool_use_id, m.task_id);
+              h.onAgent?.({
+                kind: 'start',
+                id: m.task_id,
+                type: m.subagent_type ?? 'general-purpose',
+                description: m.description ?? '',
+                startedAt: Date.now(),
+              });
+            } else if (m.subtype === 'task_progress') {
+              if (!openTasks.has(m.task_id)) break;
+              h.onAgent?.({
+                kind: 'progress',
+                id: m.task_id,
+                tool: m.last_tool_name,
+                toolCount: m.usage?.tool_uses,
+                tokens: m.usage?.total_tokens,
+              });
+            } else if (m.subtype === 'task_notification' || (m.subtype === 'task_updated' && ['completed', 'failed', 'killed'].includes(m.patch?.status))) {
+              if (!openTasks.has(m.task_id)) break;
+              openTasks.delete(m.task_id);
+              const status = m.status ?? m.patch?.status;
+              h.onAgent?.({
+                kind: 'end',
+                id: m.task_id,
+                ok: status === 'completed',
+                endedAt: Date.now(),
+                toolCount: m.usage?.tool_uses,
+                tokens: m.usage?.total_tokens,
+              });
+            }
+            break;
+          }
           case 'result': {
-            if ('session_id' in message && message.session_id && !active.claudeSessionId) {
-              active.claudeSessionId = message.session_id;
+            if (!background && message.session_id && !this.claudeSessionIds.get(session.id)) {
+              this.claudeSessionIds.set(session.id, message.session_id);
               this.sessionStore.update(session.id, { claudeSessionId: message.session_id });
             }
-            if (message.subtype === 'success' && !fullResponse) {
-              fullResponse = message.result;
-              onChunk(message.result);
-            } else if (message.subtype !== 'success') {
-              const text = (message as any).result ?? `Claude returned subtype=${message.subtype}`;
-              if (isAuthError(text)) {
-                onAuthError?.(text);
-                return;
+            resultUsage = this.summariseUsage(message, tokenSum, contextTokens, contextWindow);
+            if (message.subtype === 'success') {
+              if (!fullResponse) {
+                fullResponse = message.result;
+                h.onChunk?.(message.result);
               }
-              onError(text);
+            } else {
+              const errs = (message as any).errors as string[] | undefined;
+              const text = errs?.length ? errs.join('\n') : `Claude stopped: ${message.subtype}`;
+              this.reportError(text, h);
               return;
             }
             break;
@@ -419,17 +534,65 @@ export class AgentManager {
         }
       }
 
-      onDone(fullResponse);
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      const msg = err.message ?? 'Unknown error';
-      if (isAuthError(msg)) {
-        onAuthError?.(msg);
+      // Any subagent the CLI never closed (abort, crash) — close its card.
+      for (const id of openTasks) h.onAgent?.({ kind: 'end', id, ok: false, endedAt: Date.now() });
+
+      if (abortController.signal.aborted) {
+        // The chat UI already reset itself on Stop; a background run must
+        // record the cancellation instead of a silent empty "done".
+        if (background) h.onError('Cancelled');
         return;
       }
-      onError(msg);
+      h.onDone(fullResponse, resultUsage);
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || abortController.signal.aborted) {
+        if (background) h.onError('Cancelled');
+        return;
+      }
+      this.reportError(err?.message ?? 'Unknown error', h);
     } finally {
-      active.abortController = null;
+      httpRoute?.dispose();
+      if (!background && this.chatRuns.get(session.id) === abortController) {
+        this.chatRuns.delete(session.id);
+        this.denyAllPending(session.id, 'Cancelled');
+      }
     }
+  }
+
+  private reportError(text: string, h: SendHandlers) {
+    if (isAuthError(text) && h.onAuthError) h.onAuthError(text);
+    else h.onError(text);
+  }
+
+  /** Flatten the SDK result(s) into what the UI shows under a reply:
+   *  tokens, turns, duration, context fill. Cost is intentionally dropped. */
+  private summariseUsage(
+    message: SDKResultMessage,
+    tokenSum: { input: number; cacheRead: number; output: number; turns: number },
+    contextTokens: number | undefined,
+    fallbackContextWindow: number | undefined,
+  ): MessageUsage {
+    const u: Record<string, number | undefined> = (message.usage as any) ?? {};
+    const byModel = (message.modelUsage ?? {}) as Record<string, { outputTokens?: number; contextWindow?: number }>;
+    // The model with the most output answered; others are helpers.
+    const primary = Object.keys(byModel)
+      .sort((a, b) => (byModel[b].outputTokens ?? 0) - (byModel[a].outputTokens ?? 0))[0];
+    const contextWindow = (primary && byModel[primary].contextWindow) || fallbackContextWindow;
+
+    tokenSum.input += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+    tokenSum.cacheRead += u.cache_read_input_tokens ?? 0;
+    tokenSum.output += u.output_tokens ?? 0;
+    tokenSum.turns += message.num_turns ?? 0;
+
+    return {
+      inputTokens: tokenSum.input,
+      cacheReadTokens: tokenSum.cacheRead,
+      outputTokens: tokenSum.output,
+      durationMs: message.duration_ms ?? 0,
+      numTurns: tokenSum.turns,
+      model: primary,
+      contextTokens,
+      contextWindow,
+    };
   }
 }

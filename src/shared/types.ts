@@ -26,6 +26,11 @@ export interface ChatSession {
    *  or a full id). Passed straight to the SDK; undefined = whatever the
    *  user's Claude Code defaults to. */
   model?: string;
+  /** Context-window fill after the last reply — persisted so the header badge
+   *  is right immediately after a restart, before the next message. */
+  contextTokens?: number;
+  /** Context window of the model that answered last, as reported by the SDK. */
+  contextWindow?: number;
 }
 
 /** Scheduled autonomous task — runs the given prompt against Claude on an interval */
@@ -92,10 +97,17 @@ export interface AttachedFile {
   dataUrl?: string;
 }
 
-/** Message in the chat */
+/** Message in the chat. `system` rows are Folio's own markers (today: the
+ *  point where Claude Code compacted the history) — rendered as a divider,
+ *  excluded from search, never sent to Claude. */
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
+  /** For role 'system' — what kind of marker this is. */
+  systemKind?: 'compact';
+  /** For systemKind 'compact' — context size right before compaction, so
+   *  the divider can be rendered in whatever UI language is active. */
+  preTokens?: number;
   content: string;
   timestamp: number;
   /** Attached files (images, documents) */
@@ -104,6 +116,37 @@ export interface ChatMessage {
   toolCalls?: ToolCallInfo[];
   /** Whether a confirmation is pending for a mutation */
   pendingConfirmation?: MutationConfirmation;
+  /** Token/cost accounting for an assistant reply (from the SDK result). */
+  usage?: MessageUsage;
+  /** Subagents Claude delegated to while producing this reply. */
+  agents?: AgentRunSummary[];
+}
+
+/** Token and time accounting for one assistant reply, from the SDK
+ *  `result` message(s); covers the whole agentic run (all tool-use turns).
+ *  Money is deliberately not tracked — users are on a subscription and only
+ *  the plan limits matter (see RateLimitSnapshot). */
+export interface MessageUsage {
+  /** Input tokens summed over turns, cache reads/writes included. */
+  inputTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  numTurns: number;
+  /** Model that produced most of the output. */
+  model?: string;
+  /** Context size after this reply — see ContextUsage. */
+  contextTokens?: number;
+  contextWindow?: number;
+}
+
+/** Live context-window fill, emitted on every API turn while Claude works:
+ *  `message_start` carries the input side (history + prompt + cache),
+ *  `message_delta` adds what Claude wrote this turn. */
+export interface ContextUsage {
+  contextTokens: number;
+  /** Known once the SDK has reported `modelUsage` at least once. */
+  contextWindow?: number;
 }
 
 export interface ToolCallInfo {
@@ -207,6 +250,73 @@ export interface ClaudeModelInfo {
   resolvedModel?: string;
 }
 
+/** Voice input settings. Provider, model and key are fixed at build time
+ *  (Groq Whisper, see shared/voice-presets.ts); the user picks only the
+ *  recognition language. Older builds stored provider/apiKey/model here —
+ *  those fields are ignored now. */
+export interface VoiceSettings {
+  /** ISO-639-1 hint for the recogniser ("uk"); '' = auto-detect per clip;
+   *  missing = DEFAULT_VOICE_LANGUAGE. */
+  language?: string;
+}
+
+/** One Claude Code subagent run inside a chat reply (Task/Agent tool),
+ *  translated from the CLI's task_started / task_progress /
+ *  task_notification messages. `id` is the CLI task id. */
+export type AgentEvent =
+  | { kind: 'start'; id: string; type: string; description: string; startedAt: number }
+  | { kind: 'progress'; id: string; tool?: string; toolCount?: number; tokens?: number }
+  | { kind: 'end'; id: string; ok: boolean; endedAt: number; toolCount?: number; tokens?: number };
+
+/** One Claude subscription usage window (from the CLI's rate_limit_event). */
+export interface RateLimitWindow {
+  /** 0..1 share of the window already used. */
+  utilization: number;
+  /** When the window resets, epoch milliseconds. */
+  resetsAt: number;
+}
+
+/** Account-wide Claude plan limits: the 5-hour session window and the weekly
+ *  one. Only reported for claude.ai subscription logins. */
+export interface RateLimitSnapshot {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  fiveHour?: RateLimitWindow;
+  sevenDay?: RateLimitWindow;
+  receivedAt: number;
+}
+
+/** What a finished reply remembers about the subagents it used. */
+export interface AgentRunSummary {
+  type: string;
+  description: string;
+  ok: boolean;
+  toolCount: number;
+  durationMs: number;
+}
+
+/** Interface language. Strings live in renderer/i18n/strings; main reads
+ *  this too for the few messages it produces (terminal scripts, STT errors). */
+export type UiLanguage = 'uk' | 'en';
+
+/** What language Claude answers in. 'auto' = mirror the user's message. */
+export type ResponseLanguage = 'auto' | 'uk' | 'en';
+
+export const DEFAULT_UI_LANGUAGE: UiLanguage = 'uk';
+
+/** App-wide (not per-company) settings. Stored in the same JSON file as
+ *  sessions; see SessionStore.getSettings(). */
+export interface AppSettings {
+  voice?: VoiceSettings;
+  /** Missing = DEFAULT_UI_LANGUAGE. */
+  uiLanguage?: UiLanguage;
+  /** Missing = 'auto'. Injected into the system prompt for every chat run. */
+  responseLanguage?: ResponseLanguage;
+}
+
+export type TranscribeResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string };
+
 /** Status of Claude Code on the user's machine */
 export type ClaudeCodeStatus = 'not_installed' | 'not_authenticated' | 'ready';
 
@@ -268,7 +378,17 @@ export const IPC = {
   STREAM_DONE: 'stream-done',
   STREAM_ERROR: 'stream-error',
   STREAM_AUTH_ERROR: 'stream-auth-error',
+  STREAM_USAGE: 'stream-usage',       // ContextUsage, per API turn
+  STREAM_COMPACT: 'stream-compact',   // Claude Code compacted history (pre_tokens)
+  STREAM_AGENT: 'stream-agent',       // AgentEvent — subagent start / tool / end
+  RATE_LIMIT: 'rate-limit',           // main → renderer RateLimitSnapshot (account-wide)
+  GET_RATE_LIMIT: 'get-rate-limit',   // last known snapshot, for a fresh window
   TASK_STATUS: 'task-status',
+
+  // Attachments beyond the file picker: drag-and-drop (paths) and clipboard
+  // paste (raw bytes — screenshots have no path, main saves them first)
+  ATTACH_FILE_PATHS: 'attach-file-paths',
+  SAVE_PASTED_FILE: 'save-pasted-file',
 
   // Integrations
   GET_INTEGRATIONS: 'get-integrations',
@@ -316,4 +436,13 @@ export const IPC = {
 
   // Finmap account list for renderer use (wizard picks where to import)
   GET_FINMAP_ACCOUNTS: 'get-finmap-accounts',
+
+  // App-wide settings (voice input etc.)
+  GET_APP_SETTINGS: 'get-app-settings',
+  UPDATE_APP_SETTINGS: 'update-app-settings',
+
+  // Voice input — renderer records the clip, main talks to the STT provider
+  VOICE_AVAILABLE: 'voice-available',   // was a key baked into this build?
+  TRANSCRIBE_AUDIO: 'transcribe-audio',
+  REQUEST_MIC_ACCESS: 'request-mic-access',   // macOS TCC prompt; no-op elsewhere
 } as const;

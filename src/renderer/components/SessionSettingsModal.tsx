@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ChatSession, Integration, ScheduledTask, TaskStatusEvent, ClaudeModelInfo } from '../../shared/types';
 import styles from '../styles/NewSessionModal.module.css';
 import notesStyles from '../styles/SessionSettingsModal.module.css';
 import { McpServersSection } from './McpServersSection';
 import { FileBindingsSection } from './FileBindingsSection';
+import { useT, type TFunction } from '../i18n';
 
 const api = (window as any).finmapAgent;
 
@@ -11,16 +12,24 @@ interface Props {
   session: ChatSession;
   onClose: () => void;
   onSave: (updates: { name: string; notes: string; model: string }) => void;
+  /** Persists partial session changes (API keys etc.) through App so its
+   *  `sessions` state — and this `session` prop — don't go stale. */
+  onUpdateSession: (id: string, updates: Partial<ChatSession>) => Promise<void>;
 }
 
 
-
-export function SessionSettingsModal({ session, onClose, onSave }: Props) {
+export function SessionSettingsModal({ session, onClose, onSave, onUpdateSession }: Props) {
+  const { t, locale } = useT();
   const [name, setName] = useState(session.name);
   const [notes, setNotes] = useState(session.notes ?? '');
   const [model, setModel] = useState(session.model ?? '');
   const [models, setModels] = useState<ClaudeModelInfo[] | null>(null);
-  const hasFinmapKey = typeof session.apiKey === 'string' && session.apiKey.trim().length > 0;
+  // Local copy so the connection block flips to "connected" right after a
+  // save, before App's refreshed `session` prop arrives.
+  const [apiKey, setApiKey] = useState(session.apiKey ?? '');
+  useEffect(() => { setApiKey(session.apiKey ?? ''); }, [session.apiKey]);
+  const hasFinmapKey = apiKey.trim().length > 0;
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [apiKeySaving, setApiKeySaving] = useState(false);
@@ -67,6 +76,34 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   }, [session.id, loadTasks]);
 
   const canSave = name.trim().length > 0;
+
+  // Nested sections (API key, tasks, integrations, MCP servers) live inside
+  // this form. Enter in any of their inputs would submit the whole form —
+  // saving name/notes/model and closing the modal, losing what was typed.
+  // Only the company-name field keeps Enter-to-save.
+  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' && target !== nameInputRef.current) {
+      e.preventDefault();
+    }
+  }
+
+  async function handleSaveApiKey() {
+    const key = apiKeyDraft.trim();
+    if (!key) return;
+    setApiKeySaving(true);
+    try {
+      await onUpdateSession(session.id, { apiKey: key });
+      setApiKey(key);
+      setShowApiKeyInput(false);
+      setApiKeyDraft('');
+      // Reload integrations because they need a valid key.
+      loadIntegrations();
+    } finally {
+      setApiKeySaving(false);
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -175,7 +212,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   const modelOptions = [
     {
       value: '',
-      label: 'За замовчуванням (як у Claude Code)',
+      label: t('sessionSettings.modelDefault'),
       description: cliDefault?.description ?? '',
     },
     ...realModels.map(m => ({ value: m.value, label: m.displayName, description: m.description })),
@@ -183,19 +220,20 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   // A model saved earlier may no longer be offered (plan change, new CLI).
   // Keep it selectable so opening settings doesn't silently reset it.
   if (model && !modelOptions.some(o => o.value === model)) {
-    modelOptions.push({ value: model, label: model, description: 'Збережений раніше — цей варіант більше не пропонує Claude Code' });
+    modelOptions.push({ value: model, label: model, description: t('sessionSettings.modelStaleDescription') });
   }
   const selectedModel = modelOptions.find(o => o.value === model);
 
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={`${styles.modal} ${notesStyles.wide}`} onClick={e => e.stopPropagation()}>
-        <h2>Налаштування компанії</h2>
-        <form onSubmit={handleSubmit}>
+        <h2>{t('sessionSettings.title')}</h2>
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
           <label className={styles.field}>
-            <span>Назва</span>
+            <span>{t('sessionSettings.nameLabel')}</span>
             <input
               type="text"
+              ref={nameInputRef}
               value={name}
               onChange={e => setName(e.target.value)}
               autoFocus
@@ -203,31 +241,31 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
           </label>
 
           <div className={styles.field}>
-            <span>Finmap-підключення</span>
+            <span>{t('sessionSettings.finmapConnection')}</span>
             {hasFinmapKey ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 6 }}>
                 <span style={{ fontSize: 13, color: '#86efac' }}>
-                  ✅ Підключено · ключ закінчується на <code style={{ background: 'transparent' }}>…{session.apiKey!.slice(-4)}</code>
+                  {t('sessionSettings.connectedKeyEndsWith')} <code style={{ background: 'transparent' }}>…{apiKey.slice(-4)}</code>
                 </span>
                 <button
                   type="button"
                   onClick={() => { setShowApiKeyInput(true); setApiKeyDraft(''); }}
                   style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '4px 10px', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
                 >
-                  Змінити
+                  {t('sessionSettings.change')}
                 </button>
               </div>
             ) : !showApiKeyInput ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(234, 179, 8, 0.06)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: 6 }}>
                 <span style={{ fontSize: 13, color: '#fde68a' }}>
-                  ⚡ MCP-only режим — Finmap не підключено
+                  {t('sessionSettings.mcpOnlyMode')}
                 </span>
                 <button
                   type="button"
                   onClick={() => { setShowApiKeyInput(true); setApiKeyDraft(''); }}
                   style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
                 >
-                  Підключити Finmap
+                  {t('sessionSettings.connectFinmap')}
                 </button>
               </div>
             ) : null}
@@ -235,9 +273,10 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                 <input
                   type="password"
-                  placeholder={hasFinmapKey ? 'Новий API-ключ Finmap' : 'API-ключ Finmap (Налаштування → API)'}
+                  placeholder={hasFinmapKey ? t('sessionSettings.newApiKeyPlaceholder') : t('sessionSettings.apiKeyPlaceholder')}
                   value={apiKeyDraft}
                   onChange={e => setApiKeyDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !apiKeySaving) void handleSaveApiKey(); }}
                   autoFocus
                   style={{ width: '100%', padding: '8px 10px', background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 6, color: '#fff', fontSize: 13 }}
                 />
@@ -247,25 +286,15 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                     onClick={() => { setShowApiKeyInput(false); setApiKeyDraft(''); }}
                     style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '6px 14px', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
                   >
-                    Скасувати
+                    {t('sessionSettings.cancel')}
                   </button>
                   <button
                     type="button"
                     disabled={!apiKeyDraft.trim() || apiKeySaving}
-                    onClick={async () => {
-                      setApiKeySaving(true);
-                      await api.updateSession(session.id, { apiKey: apiKeyDraft.trim() });
-                      setApiKeySaving(false);
-                      setShowApiKeyInput(false);
-                      setApiKeyDraft('');
-                      // Force refresh — parent will re-fetch sessions on next interaction;
-                      // for immediate feedback we just close + reopen would be too jumpy.
-                      // Reload integrations because they need a valid key.
-                      loadIntegrations();
-                    }}
+                    onClick={handleSaveApiKey}
                     style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: 4, fontSize: 12, cursor: !apiKeyDraft.trim() || apiKeySaving ? 'not-allowed' : 'pointer', opacity: !apiKeyDraft.trim() || apiKeySaving ? 0.5 : 1, fontWeight: 500 }}
                   >
-                    {apiKeySaving ? 'Зберігаю...' : 'Зберегти'}
+                    {apiKeySaving ? t('sessionSettings.saving') : t('sessionSettings.save')}
                   </button>
                 </div>
               </div>
@@ -273,7 +302,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
           </div>
 
           <label className={styles.field}>
-            <span>Модель Claude</span>
+            <span>{t('sessionSettings.modelLabel')}</span>
             <select
               value={model}
               onChange={e => setModel(e.target.value)}
@@ -281,7 +310,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
               style={{ width: '100%', padding: '8px 10px', background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 6, color: '#fff', fontSize: 13, opacity: models === null ? 0.6 : 1 }}
             >
               {models === null ? (
-                <option value={model}>Завантажую список моделей…</option>
+                <option value={model}>{t('sessionSettings.loadingModels')}</option>
               ) : (
                 modelOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -290,34 +319,34 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
             </select>
             <small className={styles.hint}>
               {selectedModel?.description
-                ? `${selectedModel.description}. Діє на чат і фонові задачі цієї компанії.`
-                : 'Діє на чат і фонові задачі цієї компанії. Список моделей — ті, що доступні твоєму Claude Code.'}
+                ? t('sessionSettings.modelHintWithDescription', { description: selectedModel.description })
+                : t('sessionSettings.modelHint')}
             </small>
           </label>
 
           <label className={styles.field}>
-            <span>Нотатки для асистента</span>
+            <span>{t('sessionSettings.notesLabel')}</span>
             <textarea
               className={notesStyles.notes}
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder={'Контекст, який асистент пам\'ятатиме для цієї компанії.\n\nНаприклад:\n• Рах. *0001 — ФОП, перекази >50k вважай особистими витратами\n• Контрагент "ТОВ X" — наш основний постачальник\n• Зарплата виплачується 1-го та 15-го'}
+              placeholder={t('sessionSettings.notesPlaceholder')}
               rows={8}
             />
             <small className={styles.hint}>
-              Інжектується в системний промпт при кожному запиті
+              {t('sessionSettings.notesHint')}
             </small>
           </label>
 
           <section className={notesStyles.section}>
             <div className={notesStyles.sectionHead}>
-              <span>Інтеграції</span>
+              <span>{t('sessionSettings.integrations')}</span>
               <span className={notesStyles.sectionCount}>{integrations.length}</span>
             </div>
 
             {integrations.length === 0 ? (
               <div className={notesStyles.empty}>
-                Немає підключених інтеграцій. Натисни <b>⚡ Інтеграція</b> в чаті, щоб підключити.
+                {t('sessionSettings.noIntegrationsBefore')} <b>{t('sessionSettings.integrationButtonLabel')}</b> {t('sessionSettings.noIntegrationsAfter')}
               </div>
             ) : (
               <div className={notesStyles.list}>
@@ -332,18 +361,18 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         <span className={`${notesStyles.statusDot} ${intg.enabled ? (intg.lastStatus === 'error' ? notesStyles.err : notesStyles.on) : notesStyles.off}`} />
                         <span className={notesStyles.rowName}>{intg.serviceName}</span>
                         {intg.lastStatus === 'error' && (
-                          <span className={notesStyles.errBadge} title="Останній синк завершився помилкою. Інтервал тимчасово збільшено (backoff)">помилка</span>
+                          <span className={notesStyles.errBadge} title={t('sessionSettings.errorBadgeTitle')}>{t('sessionSettings.errorBadge')}</span>
                         )}
                       </div>
                       <div className={notesStyles.rowMeta}>
                         <span>→ {intg.finmapAccountName ?? intg.finmapAccountId}</span>
                         <span>·</span>
-                        <span>кожні {intg.syncIntervalMin} хв</span>
+                        <span>{t('sessionSettings.every', { interval: t('sessionSettings.minutes', { n: intg.syncIntervalMin }) })}</span>
                         {intg.lastSync && (
                           <>
                             <span>·</span>
-                            <span title={new Date(intg.lastSync).toLocaleString('uk-UA')}>
-                              синк {formatAgo(intg.lastSync)}
+                            <span title={new Date(intg.lastSync).toLocaleString(locale)}>
+                              {t('sessionSettings.syncAgo', { ago: formatAgo(t, intg.lastSync) })}
                             </span>
                           </>
                         )}
@@ -354,7 +383,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={`${notesStyles.toggle} ${intg.enabled ? notesStyles.toggleOn : ''}`}
                         onClick={() => handleToggle(intg.id)}
-                        title={intg.enabled ? 'Вимкнути' : 'Увімкнути'}
+                        title={intg.enabled ? t('sessionSettings.disable') : t('sessionSettings.enable')}
                       >
                         <span className={notesStyles.toggleKnob} />
                       </button>
@@ -362,8 +391,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={notesStyles.editBtn}
                         onClick={() => editingIntegrationId === intg.id ? cancelEditIntegration() : startEditIntegration(intg)}
-                        title={editingIntegrationId === intg.id ? 'Згорнути' : 'Редагувати'}
-                        aria-label="Редагувати"
+                        title={editingIntegrationId === intg.id ? t('sessionSettings.collapse') : t('sessionSettings.edit')}
+                        aria-label={t('sessionSettings.edit')}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -373,8 +402,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={notesStyles.deleteBtn}
                         onClick={() => handleDelete(intg)}
-                        title="Видалити"
-                        aria-label="Видалити"
+                        title={t('sessionSettings.delete')}
+                        aria-label={t('sessionSettings.delete')}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3 6h18" />
@@ -387,7 +416,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                     {editingIntegrationId === intg.id && (
                       <div className={notesStyles.editForm}>
                         <label className={notesStyles.editLabel}>
-                          <span>Назва</span>
+                          <span>{t('sessionSettings.nameLabel')}</span>
                           <input
                             type="text"
                             value={intgForm.serviceName}
@@ -395,38 +424,38 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                           />
                         </label>
                         <label className={notesStyles.editLabel}>
-                          <span>Інструкція синхронізації (syncPrompt)</span>
+                          <span>{t('sessionSettings.syncPromptLabel')}</span>
                           <textarea
                             value={intgForm.syncPrompt}
                             onChange={e => setIntgForm(s => ({ ...s, syncPrompt: e.target.value }))}
                             rows={8}
-                            placeholder="Деталі для Claude: URL ендпоінту, заголовки, що парсити, як категоризувати, які поля заповнювати в Finmap (категорія, контрагент, проект, теги). Це і є те, що Claude робить при кожному синку."
+                            placeholder={t('sessionSettings.syncPromptPlaceholder')}
                           />
                           <small className={notesStyles.editHint}>
-                            Тут можна додати: куди ставити <b>категорії</b>, <b>контрагентів</b>, <b>проекти</b>, <b>теги</b>; правила парсингу; формат коментаря; нюанси конкретного сервісу.
+                            {t('sessionSettings.syncPromptHintBefore')} <b>{t('sessionSettings.hintCategories')}</b>, <b>{t('sessionSettings.hintCounterparties')}</b>, <b>{t('sessionSettings.hintProjects')}</b>, <b>{t('sessionSettings.hintTags')}</b>{t('sessionSettings.syncPromptHintAfter')}
                           </small>
                         </label>
                         <div className={notesStyles.editFormRow}>
                           <label className={notesStyles.intervalLabel}>
-                            Інтервал
+                            {t('sessionSettings.interval')}
                             <select
                               value={intgForm.syncIntervalMin}
                               onChange={e => setIntgForm(s => ({ ...s, syncIntervalMin: Number(e.target.value) }))}
                             >
-                              <option value={5}>5 хв</option>
-                              <option value={10}>10 хв</option>
-                              <option value={15}>15 хв</option>
-                              <option value={30}>30 хв</option>
-                              <option value={60}>1 год</option>
-                              <option value={180}>3 год</option>
-                              <option value={360}>6 год</option>
-                              <option value={720}>12 год</option>
-                              <option value={1440}>1 день</option>
+                              <option value={5}>{t('sessionSettings.minutes', { n: 5 })}</option>
+                              <option value={10}>{t('sessionSettings.minutes', { n: 10 })}</option>
+                              <option value={15}>{t('sessionSettings.minutes', { n: 15 })}</option>
+                              <option value={30}>{t('sessionSettings.minutes', { n: 30 })}</option>
+                              <option value={60}>{t('sessionSettings.hours', { n: 1 })}</option>
+                              <option value={180}>{t('sessionSettings.hours', { n: 3 })}</option>
+                              <option value={360}>{t('sessionSettings.hours', { n: 6 })}</option>
+                              <option value={720}>{t('sessionSettings.hours', { n: 12 })}</option>
+                              <option value={1440}>{t('sessionSettings.oneDay')}</option>
                             </select>
                           </label>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button type="button" className={styles.cancelBtn} onClick={cancelEditIntegration}>
-                              Скасувати
+                              {t('sessionSettings.cancel')}
                             </button>
                             <button
                               type="button"
@@ -434,7 +463,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                               onClick={saveEditIntegration}
                               disabled={!intgForm.serviceName.trim() || !intgForm.syncPrompt.trim()}
                             >
-                              Зберегти
+                              {t('sessionSettings.save')}
                             </button>
                           </div>
                         </div>
@@ -448,13 +477,13 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
 
           <section className={notesStyles.section}>
             <div className={notesStyles.sectionHead}>
-              <span>Автозадачі</span>
+              <span>{t('sessionSettings.scheduledTasks')}</span>
               <span className={notesStyles.sectionCount}>{tasks.length}</span>
               <button
                 type="button"
                 className={notesStyles.addBtn}
                 onClick={handleToggleAddForm}
-                title={showAddTask ? 'Скасувати' : 'Нова задача'}
+                title={showAddTask ? t('sessionSettings.cancel') : t('sessionSettings.newTask')}
               >
                 {showAddTask ? '−' : '+'}
               </button>
@@ -464,31 +493,31 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
               <div className={notesStyles.addForm}>
                 <input
                   type="text"
-                  placeholder="Назва (наприклад: Категоризація)"
+                  placeholder={t('sessionSettings.taskNamePlaceholder')}
                   value={newTaskName}
                   onChange={e => setNewTaskName(e.target.value)}
                 />
                 <textarea
-                  placeholder="Що робити Claude (наприклад: за останні 2 дні знайди операції без categoryId і постав категорії на основі comment/counterparty. Не створюй нові категорії)"
+                  placeholder={t('sessionSettings.taskPromptPlaceholder')}
                   value={newTaskPrompt}
                   onChange={e => setNewTaskPrompt(e.target.value)}
                   rows={4}
                 />
                 <div className={notesStyles.addFormRow}>
                   <label className={notesStyles.intervalLabel}>
-                    Інтервал
+                    {t('sessionSettings.interval')}
                     <select
                       value={newTaskInterval}
                       onChange={e => setNewTaskInterval(Number(e.target.value))}
                     >
-                      <option value={10}>10 хв</option>
-                      <option value={15}>15 хв</option>
-                      <option value={30}>30 хв</option>
-                      <option value={60}>1 год</option>
-                      <option value={180}>3 год</option>
-                      <option value={360}>6 год</option>
-                      <option value={720}>12 год</option>
-                      <option value={1440}>1 день</option>
+                      <option value={10}>{t('sessionSettings.minutes', { n: 10 })}</option>
+                      <option value={15}>{t('sessionSettings.minutes', { n: 15 })}</option>
+                      <option value={30}>{t('sessionSettings.minutes', { n: 30 })}</option>
+                      <option value={60}>{t('sessionSettings.hours', { n: 1 })}</option>
+                      <option value={180}>{t('sessionSettings.hours', { n: 3 })}</option>
+                      <option value={360}>{t('sessionSettings.hours', { n: 6 })}</option>
+                      <option value={720}>{t('sessionSettings.hours', { n: 12 })}</option>
+                      <option value={1440}>{t('sessionSettings.oneDay')}</option>
                     </select>
                   </label>
                   <button
@@ -497,7 +526,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                     onClick={handleSaveTask}
                     disabled={!newTaskName.trim() || !newTaskPrompt.trim()}
                   >
-                    {editingTaskId ? 'Зберегти' : 'Додати'}
+                    {editingTaskId ? t('sessionSettings.save') : t('sessionSettings.add')}
                   </button>
                 </div>
               </div>
@@ -505,7 +534,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
 
             {tasks.length === 0 && !showAddTask ? (
               <div className={notesStyles.empty}>
-                Немає автозадач. Натисни <b>+</b> щоб додати — Claude виконуватиме її за розкладом.
+                {t('sessionSettings.noTasksBefore')} <b>+</b> {t('sessionSettings.noTasksAfter')}
               </div>
             ) : (
               <div className={notesStyles.list}>
@@ -525,16 +554,16 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         <span className={`${notesStyles.statusDot} ${dotClass}`} />
                         <span className={notesStyles.rowName}>{task.name}</span>
                         {task.lastStatus === 'error' && (
-                          <span className={notesStyles.errBadge}>помилка</span>
+                          <span className={notesStyles.errBadge}>{t('sessionSettings.errorBadge')}</span>
                         )}
                       </div>
                       <div className={notesStyles.rowMeta}>
-                        <span>кожні {formatInterval(task.intervalMin)}</span>
+                        <span>{t('sessionSettings.every', { interval: formatInterval(t, task.intervalMin) })}</span>
                         {task.lastRun && (
                           <>
                             <span>·</span>
-                            <span title={new Date(task.lastRun).toLocaleString('uk-UA')}>
-                              запуск {formatAgo(task.lastRun)}
+                            <span title={new Date(task.lastRun).toLocaleString(locale)}>
+                              {t('sessionSettings.lastRunAgo', { ago: formatAgo(t, task.lastRun) })}
                             </span>
                           </>
                         )}
@@ -546,7 +575,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                               className={notesStyles.resultToggle}
                               onClick={() => setExpandedResultId(expanded ? null : task.id)}
                             >
-                              {expanded ? 'сховати' : 'показати результат'}
+                              {expanded ? t('sessionSettings.hideResult') : t('sessionSettings.showResult')}
                             </button>
                           </>
                         )}
@@ -557,7 +586,7 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={`${notesStyles.toggle} ${task.enabled ? notesStyles.toggleOn : ''}`}
                         onClick={() => handleToggleTask(task.id)}
-                        title={task.enabled ? 'Вимкнути' : 'Увімкнути'}
+                        title={task.enabled ? t('sessionSettings.disable') : t('sessionSettings.enable')}
                       >
                         <span className={notesStyles.toggleKnob} />
                       </button>
@@ -565,8 +594,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={notesStyles.editBtn}
                         onClick={() => api.triggerTask(task.id)}
-                        title="Запустити зараз"
-                        aria-label="Запустити зараз"
+                        title={t('sessionSettings.runNow')}
+                        aria-label={t('sessionSettings.runNow')}
                         disabled={!task.enabled}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -577,8 +606,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={notesStyles.editBtn}
                         onClick={() => handleEditTask(task)}
-                        title="Редагувати"
-                        aria-label="Редагувати"
+                        title={t('sessionSettings.edit')}
+                        aria-label={t('sessionSettings.edit')}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -588,8 +617,8 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
                         type="button"
                         className={notesStyles.deleteBtn}
                         onClick={() => handleDeleteTask(task)}
-                        title="Видалити"
-                        aria-label="Видалити"
+                        title={t('sessionSettings.delete')}
+                        aria-label={t('sessionSettings.delete')}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3 6h18" />
@@ -611,14 +640,17 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
 
           <McpServersSection sessionId={session.id} />
 
-          <FileBindingsSection session={session} />
+          <FileBindingsSection
+            session={{ ...session, apiKey: apiKey || undefined }}
+            onUpdateSession={onUpdateSession}
+          />
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose}>
-              Скасувати
+              {t('sessionSettings.cancel')}
             </button>
             <button type="submit" className={styles.createBtn} disabled={!canSave}>
-              Зберегти
+              {t('sessionSettings.save')}
             </button>
           </div>
         </form>
@@ -627,19 +659,19 @@ export function SessionSettingsModal({ session, onClose, onSave }: Props) {
   );
 }
 
-function formatAgo(ts: number): string {
+function formatAgo(t: TFunction, ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return 'щойно';
-  if (m < 60) return `${m} хв тому`;
+  if (m < 1) return t('sessionSettings.justNow');
+  if (m < 60) return t('sessionSettings.minutesAgo', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} год тому`;
+  if (h < 24) return t('sessionSettings.hoursAgo', { n: h });
   const d = Math.floor(h / 24);
-  return `${d} дн тому`;
+  return t('sessionSettings.daysAgo', { n: d });
 }
 
-function formatInterval(min: number): string {
-  if (min < 60) return `${min} хв`;
-  if (min < 1440) return `${Math.round(min / 60)} год`;
-  return `${Math.round(min / 1440)} дн`;
+function formatInterval(t: TFunction, min: number): string {
+  if (min < 60) return t('sessionSettings.minutes', { n: min });
+  if (min < 1440) return t('sessionSettings.hours', { n: Math.round(min / 60) });
+  return t('sessionSettings.days', { n: Math.round(min / 1440) });
 }

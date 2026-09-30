@@ -1,16 +1,62 @@
 /**
- * Finmap API HTTP client — ALL endpoints from v2.2
+ * Finmap API HTTP client — endpoints of the public API v2.2
+ * (https://api.finmap.online). Every call goes through a per-company rate
+ * limiter — see finmap-rate-limiter.ts.
  */
+import { finmapLimiterFor, retryAfterMs, FinmapRateLimiter, type FinmapPriority } from './finmap-rate-limiter';
 
 const BASE_URL = 'https://api.finmap.online/v2.2';
 const REQUEST_TIMEOUT_MS = 60_000;   // hard cap per request
 const MAX_RETRIES = 2;                // total = 1 + 2 = 3 attempts
 const RETRY_DELAY_MS = 1_500;         // backoff base
 
+/** A 429 is refused before processing and not counted, so it is replayed for
+ *  every method. These bound how long one call may sit in rate-limit waits
+ *  (another client of the same company can keep the quota busy). */
+const MAX_RATE_LIMIT_RETRIES = 6;
+const MAX_RATE_LIMIT_WAIT_MS = 150_000;
+
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+/** POST endpoints that are pure queries (list/search, no side effects) and
+ *  therefore safe to replay. Every other POST creates something. */
+const IDEMPOTENT_POST_PATHS = new Set([
+  '/operations/list',
+  '/operations/invoices/list',
+]);
+
+/** True when replaying the request cannot change server state twice.
+ *  Creates/updates/deletes are NEVER retried on timeouts or 5xx: those don't
+ *  tell us whether Finmap already applied the write, and a replay could
+ *  duplicate an operation (money!) or clobber a concurrent edit. */
+function isIdempotentRequest(method: string, path: string): boolean {
+  const m = method.toUpperCase();
+  if (m === 'GET' || m === 'HEAD') return true;
+  return m === 'POST' && IDEMPOTENT_POST_PATHS.has(path);
+}
+
+export type OperationType = 'income' | 'expense' | 'transfer';
+
+export interface FinmapAPIOptions {
+  /** 'background' for scheduled tasks/syncs — they yield to the chat when
+   *  the company's request quota is tight. Default 'interactive'. */
+  priority?: FinmapPriority;
+  /** Test hook. */
+  baseUrl?: string;
+  /** Test hook — defaults to the shared per-key limiter. */
+  limiter?: FinmapRateLimiter;
+}
+
 export class FinmapAPI {
-  constructor(private apiKey: string | undefined) {}
+  private readonly priority: FinmapPriority;
+  private readonly baseUrl: string;
+  private readonly limiterOverride?: FinmapRateLimiter;
+
+  constructor(private apiKey: string | undefined, opts: FinmapAPIOptions = {}) {
+    this.priority = opts.priority ?? 'interactive';
+    this.baseUrl = opts.baseUrl ?? BASE_URL;
+    this.limiterOverride = opts.limiter;
+  }
 
   /** True when this client has credentials to actually call Finmap. Tools
    *  should short-circuit with a clear error before HTTP round-trip in
@@ -19,73 +65,127 @@ export class FinmapAPI {
     return typeof this.apiKey === 'string' && this.apiKey.trim().length > 0;
   }
 
-  private async request<T>(
+  private get limiter(): FinmapRateLimiter {
+    return this.limiterOverride ?? finmapLimiterFor((this.apiKey as string).trim());
+  }
+
+  /** Wait for a request slot in this company's quota. For callers that reach
+   *  api.finmap.online outside this client (the generic http_request tool). */
+  async throttle(): Promise<void> {
+    if (this.hasKey()) await this.limiter.acquire(this.priority);
+  }
+
+  /** Feed rate-limit headers from such an outside call back to the limiter. */
+  noteResponse(res: { status: number; headers: { get(name: string): string | null } }) {
+    if (!this.hasKey()) return;
+    this.limiter.observe(res.headers);
+    if (res.status === 429) this.limiter.block(retryAfterMs(res.headers));
+  }
+
+  private request<T>(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<T> {
+    return this.exec(method, path, body, query, 'json') as Promise<T>;
+  }
+
+  private async exec(
     method: string,
     path: string,
-    body?: unknown,
-    query?: Record<string, string>
-  ): Promise<T> {
+    body: unknown,
+    query: Record<string, string> | undefined,
+    responseType: 'json' | 'binary',
+  ): Promise<unknown> {
     if (!this.hasKey()) {
       throw new Error(
         'Finmap не підключено для цієї сесії. Додай API-ключ Finmap у налаштуваннях сесії, щоб користуватись Finmap-інструментами.'
       );
     }
-    const url = new URL(`${BASE_URL}${path}`);
+    const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [k, v] of Object.entries(query)) {
         if (v !== undefined && v !== '') url.searchParams.set(k, v);
       }
     }
 
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const limiter = this.limiter;
+    const canRetry = isIdempotentRequest(method, path);
+    let attempt = 0;
+    let rateRetries = 0;
+    let rateWaitedMs = 0;
+
+    for (;;) {
+      // Blocks while the company's 5 s / 1 min windows are full.
+      await limiter.acquire(this.priority);
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let res: Response;
+      let payload: string | ArrayBuffer;
       try {
-        const res = await fetch(url.toString(), {
+        res = await fetch(url.toString(), {
           method,
           headers: {
             'Content-Type': 'application/json',
-            // Guaranteed non-empty here — hasKey() check at top of method
-            // returns early when key is missing.
+            // Guaranteed non-empty here — hasKey() check at the top.
             'apiKey': this.apiKey as string,
           },
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,
         });
-        clearTimeout(timeout);
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          // 5xx is transient — retry. 4xx is client error — surface immediately.
-          if (res.status >= 500 && attempt < MAX_RETRIES) {
-            await sleep(RETRY_DELAY_MS * (attempt + 1));
-            continue;
-          }
-          throw new Error(`Finmap API ${method} ${path} → ${res.status}: ${text}`);
-        }
-
-        const text = await res.text();
-        return text ? JSON.parse(text) : ({} as T);
+        payload = responseType === 'binary' && res.ok ? await res.arrayBuffer() : await res.text();
       } catch (err: any) {
-        clearTimeout(timeout);
-        lastErr = err;
         const isAbort = err?.name === 'AbortError';
         const isNetwork = /fetch failed|network|ECONN|ETIMEDOUT|EAI_AGAIN/i.test(err?.message ?? '');
-        const transient = isAbort || isNetwork;
-
-        // GET is always safe to retry. POST/PATCH/PUT/DELETE we retry only
-        // on AbortError/network — server didn't process or processed but
-        // client-side delivery hung. In rare cases this can create dupes,
-        // but Finmap is generally idempotent for our usage.
-        if (transient && attempt < MAX_RETRIES) {
-          await sleep(RETRY_DELAY_MS * (attempt + 1));
+        // Only idempotent reads are replayed on timeout/network failure. For
+        // writes the server may have processed the request even though the
+        // response never arrived, so we surface the error instead of risking
+        // a duplicate.
+        if ((isAbort || isNetwork) && canRetry && attempt < MAX_RETRIES) {
+          attempt++;
+          await sleep(RETRY_DELAY_MS * attempt);
           continue;
         }
+        if (isAbort) {
+          throw new Error(
+            `Finmap API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s` +
+            (canRetry ? '' : ' — the change may or may not have been applied; check in Finmap before retrying'),
+          );
+        }
         throw err;
+      } finally {
+        clearTimeout(timeout);
       }
+
+      // Learn the server's view of the quota (other clients share it).
+      limiter.observe(res.headers);
+
+      if (res.status === 429) {
+        const waitMs = retryAfterMs(res.headers);
+        limiter.block(waitMs);
+        if (rateRetries < MAX_RATE_LIMIT_RETRIES && rateWaitedMs + waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+          rateRetries++;
+          rateWaitedMs += waitMs;
+          continue; // acquire() sits out the block
+        }
+        throw new Error(
+          `Finmap API rate limit: ${method} ${path} was still refused (429) after waiting ${Math.round(rateWaitedMs / 1000)}s. ` +
+          'Limits are 10 requests / 5 s and 120 / min per company, shared with every other integration and AI connector using this company. Try again in a minute.',
+        );
+      }
+
+      if (!res.ok) {
+        // 5xx is transient — retry reads only (a 500 on a write may still
+        // have been applied). Other 4xx are client errors — surface them.
+        if (res.status >= 500 && canRetry && attempt < MAX_RETRIES) {
+          attempt++;
+          await sleep(RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        throw new Error(`Finmap API ${method} ${path} → ${res.status}: ${payload as string}`);
+      }
+
+      if (responseType === 'binary') return payload;
+      const text = payload as string;
+      return text ? JSON.parse(text) : {};
     }
-    throw lastErr ?? new Error(`Finmap API ${method} ${path} failed after retries`);
   }
 
   // ── Accounts ────────────────────────────────────────────────
@@ -311,6 +411,15 @@ export class FinmapAPI {
     return this.request<any>('DELETE', `/operations/transfer/${id}`);
   }
 
+  // Same operations addressed by the externalId set at creation — lets a
+  // sync update/delete what it imported without a lookup request first.
+  patchOperationByExternalId(type: OperationType, externalId: string, data: Record<string, unknown>, offset = 0) {
+    return this.request<any>('PATCH', `/operations/${type}/byExternalId/${encodeURIComponent(externalId)}`, data, { offset: String(offset) });
+  }
+  deleteOperationByExternalId(type: OperationType, externalId: string) {
+    return this.request<any>('DELETE', `/operations/${type}/byExternalId/${encodeURIComponent(externalId)}`);
+  }
+
   // ── Invoices ────────────────────────────────────────────────
   getInvoices(filters: Record<string, unknown>) {
     return this.request<{ list: any[]; total: number }>('POST', '/operations/invoices/list', filters);
@@ -329,6 +438,17 @@ export class FinmapAPI {
   }
   deleteInvoice(id: string) {
     return this.request<any>('DELETE', `/invoices/${id}`);
+  }
+  updateInvoiceByExternalId(externalId: string, data: Record<string, unknown>, offset = 0) {
+    return this.request<any>('PATCH', `/invoices/byExternalId/${encodeURIComponent(externalId)}`, data, { offset: String(offset) });
+  }
+  deleteInvoiceByExternalId(externalId: string) {
+    return this.request<any>('DELETE', `/invoices/byExternalId/${encodeURIComponent(externalId)}`);
+  }
+  /** Rendered invoice as PDF bytes. language: ru | en | uk | pl | es | cz | tr | uz | pt-BR */
+  async getInvoicePdf(id: string, language?: string): Promise<Buffer> {
+    const bytes = await this.exec('GET', `/invoices/pdf/${encodeURIComponent(id)}`, undefined, language ? { language } : undefined, 'binary');
+    return Buffer.from(bytes as ArrayBuffer);
   }
 
   // ── Invoice Goods ───────────────────────────────────────────

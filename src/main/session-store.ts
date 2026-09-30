@@ -2,7 +2,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import type { ChatSession, ChatMessage, Integration, ScheduledTask, SearchResult, McpServerConfig, FileImportBinding } from '../shared/types';
+import type { ChatSession, ChatMessage, Integration, ScheduledTask, SearchResult, McpServerConfig, FileImportBinding, AppSettings } from '../shared/types';
 
 /**
  * Simple JSON file-based store for sessions and integrations.
@@ -18,7 +18,9 @@ export class SessionStore {
     messages: Record<string, ChatMessage[]>; // sessionId → messages
     mcpServers: McpServerConfig[];
     fileBindings: FileImportBinding[];
-  } = { sessions: [], integrations: [], tasks: [], messages: {}, mcpServers: [], fileBindings: [] };
+    /** App-wide settings (voice input etc.) — not tied to any session. */
+    settings: AppSettings;
+  } = { sessions: [], integrations: [], tasks: [], messages: {}, mcpServers: [], fileBindings: [], settings: {} };
   private initialized = false;
 
   private ensureInit() {
@@ -29,25 +31,71 @@ export class SessionStore {
     this.initialized = true;
   }
 
-  private load() {
-    try {
-      const raw = fs.readFileSync(this.filePath!, 'utf-8');
-      const parsed = JSON.parse(raw);
-      // Ensure all top-level fields exist (migration from older data)
-      if (!parsed.messages) parsed.messages = {};
-      if (!parsed.integrations) parsed.integrations = [];
-      if (!parsed.sessions) parsed.sessions = [];
-      if (!parsed.tasks) parsed.tasks = [];
-      if (!parsed.mcpServers) parsed.mcpServers = [];
-      if (!parsed.fileBindings) parsed.fileBindings = [];
-      return parsed;
-    } catch {
-      return { sessions: [], integrations: [], tasks: [], messages: {}, mcpServers: [], fileBindings: [] };
-    }
+  private emptyData() {
+    return { sessions: [], integrations: [], tasks: [], messages: {}, mcpServers: [], fileBindings: [], settings: {} };
   }
 
+  private load() {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.filePath!, 'utf-8');
+    } catch (err: any) {
+      // First run — nothing stored yet.
+      if (err?.code === 'ENOENT') return this.emptyData();
+      // Unreadable (permissions, lock) — don't pretend it's empty, because the
+      // next save() would overwrite the real data. Surface it instead.
+      throw err;
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('store root is not an object');
+      }
+    } catch (err: any) {
+      // Corrupt store (e.g. crash mid-write by an older build). Keep the file
+      // aside for manual recovery rather than silently overwriting it.
+      const corruptPath = `${this.filePath}.corrupt-${Date.now()}`;
+      try {
+        fs.renameSync(this.filePath!, corruptPath);
+        console.error(`[SessionStore] Store file is corrupt (${err?.message ?? err}); moved to ${corruptPath}, starting empty.`);
+      } catch (renameErr: any) {
+        console.error(`[SessionStore] Store file is corrupt (${err?.message ?? err}) and could not be moved aside: ${renameErr?.message ?? renameErr}`);
+        throw err;
+      }
+      return this.emptyData();
+    }
+
+    // Ensure all top-level fields exist (migration from older data)
+    if (!parsed.messages) parsed.messages = {};
+    if (!parsed.integrations) parsed.integrations = [];
+    if (!parsed.sessions) parsed.sessions = [];
+    if (!parsed.tasks) parsed.tasks = [];
+    if (!parsed.mcpServers) parsed.mcpServers = [];
+    if (!parsed.fileBindings) parsed.fileBindings = [];
+    if (!parsed.settings) parsed.settings = {};
+    return parsed;
+  }
+
+  /** Atomic write: serialise to `<file>.tmp`, then rename over the real file,
+   *  so a crash or power loss mid-write never leaves a truncated store. */
   private save() {
-    fs.writeFileSync(this.filePath!, JSON.stringify(this.data, null, 2), 'utf-8');
+    const target = this.filePath!;
+    const tmp = `${target}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf-8');
+    // On Windows the rename can transiently fail with EPERM/EBUSY/EACCES while
+    // OneDrive or an antivirus holds the target open — retry briefly.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.renameSync(tmp, target);
+        return;
+      } catch (err: any) {
+        const transient = err?.code === 'EPERM' || err?.code === 'EBUSY' || err?.code === 'EACCES';
+        if (!transient || attempt >= 4) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+      }
+    }
   }
 
   // ── Sessions ────────────────────────────────────────────────
@@ -89,6 +137,8 @@ export class SessionStore {
     this.data.sessions = this.data.sessions.filter(s => s.id !== id);
     this.data.integrations = this.data.integrations.filter(i => i.sessionId !== id);
     this.data.tasks = this.data.tasks.filter(t => t.sessionId !== id);
+    this.data.mcpServers = this.data.mcpServers.filter(m => m.sessionId !== id);
+    this.data.fileBindings = this.data.fileBindings.filter(b => b.sessionId !== id);
     delete this.data.messages[id];
     this.save();
     return this.data.sessions.length < before;
@@ -116,6 +166,22 @@ export class SessionStore {
     this.save();
   }
 
+  // ── App settings ─────────────────────────────────────────────
+
+  getSettings(): AppSettings {
+    this.ensureInit();
+    return this.data.settings;
+  }
+
+  /** Shallow merge. Pass `{ voice: undefined }` to drop a section — JSON
+   *  serialisation strips undefined keys, so it disappears from disk too. */
+  updateSettings(updates: Partial<AppSettings>): AppSettings {
+    this.ensureInit();
+    this.data.settings = { ...this.data.settings, ...updates };
+    this.save();
+    return this.data.settings;
+  }
+
   /** Case-insensitive substring search across all messages in all sessions. */
   searchMessages(query: string, limit = 50): SearchResult[] {
     this.ensureInit();
@@ -130,6 +196,7 @@ export class SessionStore {
       const sessionName = sessionNameById.get(sessionId);
       if (!sessionName) continue; // orphaned messages from deleted session
       for (const msg of messages) {
+        if (msg.role === 'system') continue; // Folio's own markers, not conversation
         const lower = msg.content.toLowerCase();
         const idx = lower.indexOf(q);
         if (idx === -1) continue;

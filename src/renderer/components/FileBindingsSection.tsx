@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { FileImportBinding, ChatSession } from '../../shared/types';
+import type { FileImportBinding, ChatSession, TaskStatusEvent } from '../../shared/types';
 import styles from '../styles/SessionSettingsModal.module.css';
 import { FolderImportWizard } from './FolderImportWizard';
+import { useT, type TFunction } from '../i18n';
 
 const api = (window as any).finmapAgent;
 
 interface Props {
   session: ChatSession;
+  /** Persists session changes through App so its `sessions` state (and the
+   *  `session` prop) stay in sync — passed down to FolderImportWizard. */
+  onUpdateSession: (id: string, updates: Partial<ChatSession>) => Promise<void>;
 }
 
 interface EditState {
@@ -21,7 +25,8 @@ interface EditState {
  * just sees existing bindings, edits the context-prompt / interval, toggles
  * them on/off, triggers a run manually, or deletes.
  */
-export function FileBindingsSection({ session }: Props) {
+export function FileBindingsSection({ session, onUpdateSession }: Props) {
+  const { t, locale } = useT();
   const sessionId = session.id;
   const [bindings, setBindings] = useState<FileImportBinding[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -34,6 +39,15 @@ export function FileBindingsSection({ session }: Props) {
   }, [sessionId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Rows show lastSync / lastStatus / processed count — refresh them when a
+  // binding run for this session finishes (runs happen in the background).
+  useEffect(() => {
+    const unsub = api.onTaskStatus((e: TaskStatusEvent) => {
+      if (e.sessionId === sessionId && e.kind === 'binding' && e.status !== 'progress') load();
+    });
+    return unsub;
+  }, [sessionId, load]);
 
   function startEdit(b: FileImportBinding) {
     setEditingId(b.id);
@@ -67,7 +81,7 @@ export function FileBindingsSection({ session }: Props) {
   }
 
   async function remove(b: FileImportBinding) {
-    if (!confirm(`Видалити авто-імпорт "${b.sourceFolderName} → ${b.finmapAccountName}"?\n\nВже створені у Finmap операції залишаться — видалиться тільки звʼязка.`)) return;
+    if (!confirm(t('fileBindings.confirmDelete', { folder: b.sourceFolderName, account: b.finmapAccountName }))) return;
     await api.deleteFileBinding(b.id);
     if (editingId === b.id) cancelEdit();
     load();
@@ -76,13 +90,13 @@ export function FileBindingsSection({ session }: Props) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHead}>
-        <span>Авто-імпорт з папок</span>
+        <span>{t('fileBindings.title')}</span>
         <span className={styles.sectionCount}>{bindings.length}</span>
         <button
           type="button"
           className={styles.addBtn}
           onClick={() => setShowWizard(true)}
-          title="Налаштувати авто-імпорт з Google Drive"
+          title={t('fileBindings.setupFromDrive')}
         >
           +
         </button>
@@ -91,6 +105,7 @@ export function FileBindingsSection({ session }: Props) {
       {showWizard && (
         <FolderImportWizard
           session={session}
+          onUpdateSession={onUpdateSession}
           onClose={() => setShowWizard(false)}
           onCreated={load}
         />
@@ -98,7 +113,7 @@ export function FileBindingsSection({ session }: Props) {
 
       {bindings.length === 0 ? (
         <div className={styles.empty}>
-          Ще немає налаштованих авто-імпортів. Натисни <b>+</b> щоб підʼєднати папку Google Drive до Finmap-рахунку.
+          {t('fileBindings.emptyIntro')} <b>+</b> {t('fileBindings.emptyAfter')}
         </div>
       ) : (
         <div className={styles.list}>
@@ -116,17 +131,17 @@ export function FileBindingsSection({ session }: Props) {
                     <div className={styles.rowMeta}>
                       <span>→ 💳 {b.finmapAccountName}</span>
                       <span>·</span>
-                      <span>кожні {formatInterval(b.syncIntervalMin)}</span>
+                      <span>{t('fileBindings.every', { interval: formatInterval(t, b.syncIntervalMin) })}</span>
                       {b.lastSync && (
                         <>
                           <span>·</span>
-                          <span title={new Date(b.lastSync).toLocaleString('uk-UA')}>
-                            синк {formatAgo(b.lastSync)}
+                          <span title={new Date(b.lastSync).toLocaleString(locale)}>
+                            {t('fileBindings.syncAgo', { ago: formatAgo(t, b.lastSync) })}
                           </span>
                         </>
                       )}
                       <span>·</span>
-                      <span>{b.processedFileIds.length} оброблених</span>
+                      <span>{t('fileBindings.processedCount', { n: b.processedFileIds.length })}</span>
                     </div>
                     {b.lastResult && (
                       <button
@@ -134,7 +149,7 @@ export function FileBindingsSection({ session }: Props) {
                         className={styles.resultToggle}
                         onClick={() => setExpandedResultId(expanded ? null : b.id)}
                       >
-                        {expanded ? 'сховати результат' : 'показати результат'}
+                        {expanded ? t('fileBindings.hideResult') : t('fileBindings.showResult')}
                       </button>
                     )}
                   </div>
@@ -143,7 +158,7 @@ export function FileBindingsSection({ session }: Props) {
                       type="button"
                       className={`${styles.toggle} ${b.enabled ? styles.toggleOn : ''}`}
                       onClick={() => toggleBinding(b.id)}
-                      title={b.enabled ? 'Вимкнути' : 'Увімкнути'}
+                      title={b.enabled ? t('fileBindings.disable') : t('fileBindings.enable')}
                     >
                       <span className={styles.toggleKnob} />
                     </button>
@@ -151,8 +166,8 @@ export function FileBindingsSection({ session }: Props) {
                       type="button"
                       className={styles.editBtn}
                       onClick={() => triggerNow(b)}
-                      title="Запустити зараз"
-                      aria-label="Запустити зараз"
+                      title={t('fileBindings.runNow')}
+                      aria-label={t('fileBindings.runNow')}
                       disabled={!b.enabled}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -163,8 +178,8 @@ export function FileBindingsSection({ session }: Props) {
                       type="button"
                       className={styles.editBtn}
                       onClick={() => isEditing ? cancelEdit() : startEdit(b)}
-                      title={isEditing ? 'Згорнути' : 'Редагувати'}
-                      aria-label="Редагувати"
+                      title={isEditing ? t('fileBindings.collapse') : t('fileBindings.edit')}
+                      aria-label={t('fileBindings.edit')}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -174,8 +189,8 @@ export function FileBindingsSection({ session }: Props) {
                       type="button"
                       className={styles.deleteBtn}
                       onClick={() => remove(b)}
-                      title="Видалити"
-                      aria-label="Видалити"
+                      title={t('fileBindings.delete')}
+                      aria-label={t('fileBindings.delete')}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M3 6h18" />
@@ -191,28 +206,28 @@ export function FileBindingsSection({ session }: Props) {
                 {isEditing && (
                   <div className={styles.editForm}>
                     <label className={styles.editLabel}>
-                      <span>Контекст обробки (інтерпретується Claude для кожного нового файла)</span>
+                      <span>{t('fileBindings.contextLabel')}</span>
                       <textarea
                         rows={6}
                         value={edit.contextPrompt}
                         onChange={e => setEdit({ ...edit, contextPrompt: e.target.value })}
-                        placeholder={'Категорія: "Продаж послуг"\nКонтрагент: з назви файла\nТип: дохід\nЯкщо .pdf — банківська виписка'}
+                        placeholder={t('fileBindings.contextPlaceholder')}
                       />
                     </label>
                     <label className={styles.intervalLabel}>
-                      Інтервал перевірки
+                      {t('fileBindings.checkInterval')}
                       <select
                         value={edit.syncIntervalMin}
                         onChange={e => setEdit({ ...edit, syncIntervalMin: Number(e.target.value) })}
                       >
-                        <option value={15}>15 хв</option>
-                        <option value={30}>30 хв</option>
-                        <option value={60}>1 год</option>
-                        <option value={180}>3 год</option>
-                        <option value={360}>6 год</option>
-                        <option value={720}>12 год</option>
-                        <option value={1440}>1 день</option>
-                        <option value={10080}>1 тиждень</option>
+                        <option value={15}>{t('fileBindings.intervalMin', { n: 15 })}</option>
+                        <option value={30}>{t('fileBindings.intervalMin', { n: 30 })}</option>
+                        <option value={60}>{t('fileBindings.intervalHours', { n: 1 })}</option>
+                        <option value={180}>{t('fileBindings.intervalHours', { n: 3 })}</option>
+                        <option value={360}>{t('fileBindings.intervalHours', { n: 6 })}</option>
+                        <option value={720}>{t('fileBindings.intervalHours', { n: 12 })}</option>
+                        <option value={1440}>{t('fileBindings.intervalDay')}</option>
+                        <option value={10080}>{t('fileBindings.intervalWeek')}</option>
                       </select>
                     </label>
                     <div className={styles.editFormRow}>
@@ -222,7 +237,7 @@ export function FileBindingsSection({ session }: Props) {
                         onClick={saveEdit}
                         disabled={!edit.contextPrompt.trim()}
                       >
-                        Зберегти
+                        {t('fileBindings.save')}
                       </button>
                     </div>
                   </div>
@@ -236,19 +251,19 @@ export function FileBindingsSection({ session }: Props) {
   );
 }
 
-function formatAgo(ts: number): string {
+function formatAgo(t: TFunction, ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return 'щойно';
-  if (m < 60) return `${m} хв тому`;
+  if (m < 1) return t('fileBindings.justNow');
+  if (m < 60) return t('fileBindings.minutesAgo', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} год тому`;
+  if (h < 24) return t('fileBindings.hoursAgo', { n: h });
   const d = Math.floor(h / 24);
-  return `${d} дн тому`;
+  return t('fileBindings.daysAgo', { n: d });
 }
 
-function formatInterval(min: number): string {
-  if (min < 60) return `${min} хв`;
-  if (min < 1440) return `${Math.round(min / 60)} год`;
-  return `${Math.round(min / 1440)} дн`;
+function formatInterval(t: TFunction, min: number): string {
+  if (min < 60) return t('fileBindings.intervalMin', { n: min });
+  if (min < 1440) return t('fileBindings.intervalHours', { n: Math.round(min / 60) });
+  return t('fileBindings.intervalDays', { n: Math.round(min / 1440) });
 }

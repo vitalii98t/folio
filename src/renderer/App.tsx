@@ -1,16 +1,49 @@
 import { useState, useEffect } from 'react';
-import type { ChatSession, ClaudeCodeStatus, UpdateStatusEvent } from '../shared/types';
+import type { ChatSession, ClaudeCodeStatus, UpdateStatusEvent, AppSettings, RateLimitSnapshot } from '../shared/types';
+import { DEFAULT_UI_LANGUAGE } from '../shared/types';
 import { SetupScreen } from './components/SetupScreen';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { NewSessionModal } from './components/NewSessionModal';
 import { SearchModal } from './components/SearchModal';
+import { AppSettingsModal } from './components/AppSettingsModal';
 import { TaskToasts } from './components/TaskToasts';
+import { I18nProvider, useT } from './i18n';
 import styles from './styles/App.module.css';
 
 const api = (window as any).finmapAgent;
 
+/**
+ * Outer shell owns app-wide settings so the i18n provider can wrap every
+ * screen — including the setup screen shown before Claude is ready.
+ */
 export function App() {
+  const [appSettings, setAppSettings] = useState<AppSettings>({});
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  useEffect(() => {
+    api.getAppSettings?.()
+      .then((s: AppSettings) => setAppSettings(s ?? {}))
+      .catch(() => {});
+    api.voiceAvailable?.()
+      .then((v: boolean) => setVoiceAvailable(Boolean(v)))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <I18nProvider lang={appSettings.uiLanguage ?? DEFAULT_UI_LANGUAGE}>
+      <AppShell appSettings={appSettings} voiceAvailable={voiceAvailable} onSettingsChange={setAppSettings} />
+    </I18nProvider>
+  );
+}
+
+interface ShellProps {
+  appSettings: AppSettings;
+  voiceAvailable: boolean;
+  onSettingsChange: (s: AppSettings) => void;
+}
+
+function AppShell({ appSettings, voiceAvailable, onSettingsChange }: ShellProps) {
+  const { t } = useT();
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | 'loading'>('loading');
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -20,6 +53,14 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [reAuthChecking, setReAuthChecking] = useState(false);
   const [updateReady, setUpdateReady] = useState<string | null>(null); // version downloaded & ready
+  const [showAppSettings, setShowAppSettings] = useState(false);
+  // Claude plan limits are account-wide, so they live here, not per chat.
+  const [rateLimit, setRateLimit] = useState<RateLimitSnapshot | null>(null);
+  useEffect(() => {
+    api.getRateLimit?.().then((s: RateLimitSnapshot | null) => { if (s) setRateLimit(s); }).catch(() => {});
+    const unsub = api.onRateLimit?.((s: RateLimitSnapshot) => setRateLimit(s));
+    return unsub;
+  }, []);
 
   // Listen to runtime auth-error events from main — Claude SDK 401/403/expired
   useEffect(() => {
@@ -49,7 +90,7 @@ export function App() {
 
   // Global Ctrl+K / Cmd+K to open search.
   // Use e.code (physical key) so it works regardless of keyboard layout —
-  // on Ukrainian layout pressing the K key gives e.key='к' (Cyrillic), not 'k'.
+  // on a Ukrainian layout the K key reports a Cyrillic e.key, not 'k'.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') {
@@ -85,7 +126,7 @@ export function App() {
     return (
       <div className={styles.loading}>
         <div className={styles.spinner} />
-        <p>Перевіряю Claude Code...</p>
+        <p>{t('app.checkingClaude')}</p>
       </div>
     );
   }
@@ -109,9 +150,9 @@ export function App() {
       <div className={styles.emptyState}>
         <div className={styles.emptyCard}>
           <h1>Folio</h1>
-          <p>AI-асистент для управління фінансами</p>
+          <p>{t('app.tagline')}</p>
           <button className={styles.primaryBtn} onClick={() => setShowNewSession(true)}>
-            Додати компанію
+            {t('app.addCompany')}
           </button>
         </div>
       </div>
@@ -144,17 +185,17 @@ export function App() {
   }
 
   async function handleClaudeLogout() {
-    if (!confirm('Вийти з Claude Code?\n\nПісля цього знадобиться залогінитись знову. Локальні дані Folio (історія чатів, налаштування) залишаться.')) return;
+    if (!confirm(t('app.logoutConfirm'))) return;
     const result = await api.claudeLogout();
     if (!result.ok) {
-      alert(`Не вдалося вийти: ${result.error}`);
+      alert(t('app.logoutFailed', { error: result.error }));
       return;
     }
     // Re-sync local state with the now-cleared session ids
     const fresh = await api.getSessions();
     setSessions(fresh);
     setAuthError(null);
-    // Force the setup-screen branch — user clicks "Увійти в Claude Code" to re-auth
+    // Force the setup-screen branch — user clicks "Sign in to Claude Code" to re-auth
     setClaudeStatus('not_authenticated');
   }
 
@@ -168,6 +209,7 @@ export function App() {
         onDelete={handleDeleteSession}
         onSearch={() => setShowSearch(true)}
         onClaudeLogout={handleClaudeLogout}
+        onOpenSettings={() => setShowAppSettings(true)}
       />
       <main className={styles.main}>
         {activeSession ? (
@@ -176,10 +218,12 @@ export function App() {
             onUpdateSession={handleUpdateSession}
             highlightMessageId={highlightMessageId}
             onHighlightConsumed={() => setHighlightMessageId(null)}
+            voiceAvailable={voiceAvailable}
+            rateLimit={rateLimit}
           />
         ) : (
           <div className={styles.noSession}>
-            <p>Оберіть компанію або створіть нову</p>
+            <p>{t('app.pickCompany')}</p>
           </div>
         )}
       </main>
@@ -201,26 +245,38 @@ export function App() {
         />
       )}
 
+      {showAppSettings && (
+        <AppSettingsModal
+          settings={appSettings}
+          voiceAvailable={voiceAvailable}
+          onClose={() => setShowAppSettings(false)}
+          onSaved={(saved) => {
+            onSettingsChange(saved);
+            setShowAppSettings(false);
+          }}
+        />
+      )}
+
       <TaskToasts />
 
       {updateReady !== null && (
         <div className={styles.updateBanner}>
           <span>
-            ⬆️ Доступна нова версія{updateReady ? ` ${updateReady}` : ''} — завантажено у фоні
+            {t('app.updateReady', { version: updateReady ? ` ${updateReady}` : '' })}
           </span>
           <div className={styles.updateBannerActions}>
             <button
               className={styles.updateBannerInstall}
               onClick={() => api.installUpdate()}
             >
-              Перезапустити й оновити
+              {t('app.updateInstall')}
             </button>
             <button
               className={styles.updateBannerDismiss}
               onClick={() => setUpdateReady(null)}
-              title="Оновиться автоматично при наступному закритті"
+              title={t('app.updateLaterHint')}
             >
-              Пізніше
+              {t('app.updateLater')}
             </button>
           </div>
         </div>
@@ -229,29 +285,29 @@ export function App() {
       {authError && (
         <div className={styles.authBanner}>
           <div className={styles.authBannerInner}>
-            <strong>Сесія Claude Code закінчилась</strong>
+            <strong>{t('app.authExpired')}</strong>
             <p>{authError}</p>
             <p className={styles.authBannerHint}>
-              Натисни <b>Увійти</b> — відкриється термінал з командою <code>claude login</code>. Після успішної авторизації натисни <b>Перевірити</b>.
+              {t('app.authHintBefore')}<b>{t('app.authHintLogin')}</b>{t('app.authHintMiddle')}<code>claude login</code>{t('app.authHintAfter')}<b>{t('app.authHintCheck')}</b>{t('app.authHintEnd')}
             </p>
             <div className={styles.authBannerActions}>
               <button
                 className={styles.authBannerLogin}
                 onClick={() => api.openClaudeLogin()}
               >
-                Увійти у Claude
+                {t('app.authLogin')}
               </button>
               <button
                 className={styles.authBannerCheck}
                 onClick={recheckAuth}
                 disabled={reAuthChecking}
               >
-                {reAuthChecking ? 'Перевіряю…' : 'Перевірити'}
+                {reAuthChecking ? t('app.authChecking') : t('app.authCheck')}
               </button>
               <button
                 className={styles.authBannerDismiss}
                 onClick={() => setAuthError(null)}
-                title="Закрити"
+                title={t('app.close')}
               >
                 ✕
               </button>

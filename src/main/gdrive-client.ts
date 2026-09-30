@@ -13,6 +13,71 @@
 
 const DRIVE_BASE = 'https://www.googleapis.com/drive/v3';
 
+/** Every Drive/Sheets request is bounded — a stalled connection must not hang
+ *  an agent turn or a background sync forever. */
+export const DRIVE_FETCH_TIMEOUT_MS = 60_000;
+
+/** Largest file we are willing to buffer (and then base64 into a tool result).
+ *  Anything bigger is refused with an error instead of being read into memory. */
+export const DRIVE_MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
+
+export class DriveFileTooLargeError extends Error {
+  constructor(public readonly bytes: number | null) {
+    super(
+      `File is too large to download (${bytes != null ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : 'more than 15 MB'}; ` +
+      `limit is ${DRIVE_MAX_DOWNLOAD_BYTES / 1024 / 1024} MB). Ask the user to split it or export a smaller range.`,
+    );
+    this.name = 'DriveFileTooLargeError';
+  }
+}
+
+/** fetch() with the Drive timeout; turns an abort into a readable error. */
+async function driveFetch(url: string): Promise<Response> {
+  try {
+    return await fetch(url, { signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS) });
+  } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new Error(`Google Drive did not respond within ${DRIVE_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  }
+}
+
+/** Read a response body into a Buffer, refusing to go past `maxBytes`.
+ *  Checks content-length up front, then enforces the cap while streaming
+ *  (content-length is absent for chunked/exported responses). */
+async function readBodyCapped(res: Response, maxBytes = DRIVE_MAX_DOWNLOAD_BYTES): Promise<Buffer> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    try { await res.body?.cancel(); } catch {}
+    throw new DriveFileTooLargeError(declared);
+  }
+  if (!res.body) return Buffer.alloc(0);
+
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        throw new DriveFileTooLargeError(null);
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } catch (err: any) {
+    if (err instanceof DriveFileTooLargeError) throw err;
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new Error(`Google Drive download timed out after ${DRIVE_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  }
+  return Buffer.concat(chunks, total);
+}
+
 export interface DriveFile {
   id: string;
   name: string;
@@ -53,7 +118,7 @@ export class GDriveClient {
     const url = new URL(`${DRIVE_BASE}/files/${folderId}`);
     url.searchParams.set('fields', 'id,name,mimeType,createdTime,modifiedTime,webViewLink');
     url.searchParams.set('key', this.apiKey);
-    const res = await fetch(url.toString());
+    const res = await driveFetch(url.toString());
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Drive ${res.status}: ${body || res.statusText}`);
@@ -79,7 +144,7 @@ export class GDriveClient {
       url.searchParams.set('key', this.apiKey);
       if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-      const res = await fetch(url.toString());
+      const res = await driveFetch(url.toString());
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`Drive ${res.status}: ${body || res.statusText}`);
@@ -103,16 +168,35 @@ export class GDriveClient {
    *  caller decides how to ingest. For Google-native types (Docs/Sheets) the
    *  caller must use `exportFile` instead. */
   async downloadFile(fileId: string): Promise<{ base64: string; size: number }> {
+    // Cheap metadata probe first so an oversized file is refused before any
+    // bytes are transferred. Best-effort: if it fails, the streaming cap below
+    // still protects us.
+    const size = await this.getFileSize(fileId).catch(() => null);
+    if (size != null && size > DRIVE_MAX_DOWNLOAD_BYTES) throw new DriveFileTooLargeError(size);
+
     const url = new URL(`${DRIVE_BASE}/files/${fileId}`);
     url.searchParams.set('alt', 'media');
     url.searchParams.set('key', this.apiKey);
-    const res = await fetch(url.toString());
+    const res = await driveFetch(url.toString());
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Drive ${res.status}: ${body || res.statusText}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readBodyCapped(res);
     return { base64: buf.toString('base64'), size: buf.length };
+  }
+
+  /** Size in bytes from file metadata, or null when Drive doesn't report one
+   *  (Google-native Docs/Sheets/Slides have no stored size). */
+  async getFileSize(fileId: string): Promise<number | null> {
+    const url = new URL(`${DRIVE_BASE}/files/${fileId}`);
+    url.searchParams.set('fields', 'size');
+    url.searchParams.set('key', this.apiKey);
+    const res = await driveFetch(url.toString());
+    if (!res.ok) return null;
+    const data = await res.json() as { size?: string | number };
+    const n = Number(data.size);
+    return data.size != null && Number.isFinite(n) ? n : null;
   }
 
   /** Export Google-native files (Docs/Sheets/Slides) to a downloadable format.
@@ -127,12 +211,12 @@ export class GDriveClient {
     const url = new URL(`${DRIVE_BASE}/files/${fileId}/export`);
     url.searchParams.set('mimeType', mimeType);
     url.searchParams.set('key', this.apiKey);
-    const res = await fetch(url.toString());
+    const res = await driveFetch(url.toString());
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Drive ${res.status}: ${body || res.statusText}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readBodyCapped(res);
     return { base64: buf.toString('base64'), size: buf.length };
   }
 
@@ -149,13 +233,13 @@ export class GDriveClient {
     const url = new URL(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(fileId)}/export`);
     url.searchParams.set('format', 'csv');
     url.searchParams.set('gid', gid);
-    const res = await fetch(url.toString());
+    const res = await driveFetch(url.toString());
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Sheets export ${res.status}: ${(body || res.statusText).slice(0, 200)}`);
     }
     const contentType = res.headers.get('content-type') ?? '';
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readBodyCapped(res);
     if (contentType.includes('text/html')) {
       throw new Error(
         'Не вдалося експортувати вкладку за gid: таблиця не відкрита для "Anyone with the link". ' +

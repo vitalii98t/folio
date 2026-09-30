@@ -6,7 +6,7 @@
 
 ### AI-асистент для управління фінансами у [Finmap](https://finmap.online)
 
-Десктоп-додаток на базі Claude Code SDK. Автоматизує рутину обліку, підключає інтеграції за хвилини, звіряє виписки за секунди, працює з **будь-яким MCP-сервером** з коробки.
+Десктоп-додаток на базі Claude Agent SDK. Автоматизує рутину обліку, підключає інтеграції за хвилини, звіряє виписки за секунди, працює з **будь-яким MCP-сервером** з коробки.
 
 [![Build status](https://github.com/vitalii98t/folio/actions/workflows/build.yml/badge.svg)](https://github.com/vitalii98t/folio/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/vitalii98t/folio?label=release&color=6dd5ed)](https://github.com/vitalii98t/folio/releases/latest)
@@ -36,6 +36,12 @@
 - 📊 **Звірка виписок** — drag PDF/Excel/CSV у чат, миттєвий звіт що відсутнє/зайве/розбіжне (детермінований 3-pass matcher у Node)
 - ⏰ **Автозадачі за розкладом** — Claude сам категоризує/синхронізує/звіряє кожні N хвилин. Працює і для MCP-серверів. Можна тригернути руками
 - 📈 **Графіки в чаті** — *"Покажи витрати за квартал у вигляді pie chart"* → готово
+- 🤖 **Мультиагентність** — Claude запускає паралельних субагентів (аналітик Finmap, звірка виписки, веб-дослідник); у чаті видно, хто що робить
+- 🎙️ **Голосове введення** — натиснув мікрофон, надиктував, текст у полі. Працює з коробки, в налаштуваннях лише мова
+- ⏱ **Ліміти Claude** — у хедері видно, скільки використано з 5-годинного вікна підписки і коли воно оновиться
+- ⚡ **Стрімінг по токенах** + індикатор заповнення контексту в хедері, позначка автокомпакту історії
+- 📎 **Drag-and-drop і Ctrl+V** — кидай виписки в чат, вставляй скріншот чека з буфера
+- 🌐 **Українська / English** — мова інтерфейсу і окремо мова відповідей асистента (`Налаштування` в sidebar)
 - 🔍 **Пошук Ctrl+K** по всій історії чатів
 - 🏢 **Multi-company** з ізольованими сесіями (свій API-ключ для кожної)
 - 🛡️ **Підтвердження дій** перед будь-якою зміною даних у Finmap
@@ -161,6 +167,28 @@ Folio працює з **будь-яким MCP-сервером** — це ста
 
 Folio періодично сканує папку, нові файли пушить Claude для парсингу + створення операцій з дедупом через `check_externalIds`. Прогрес видно у тултіпі прямо на binding-карті.
 
+## 🎙️ Голосове введення
+
+Кнопка мікрофона в полі вводу: натиснув → говориш → натиснув ще раз → текст з'являється в полі. Відправляєш сам, після перегляду. `Esc` під час запису — скасувати.
+
+Розпізнає Groq Whisper (`whisper-large-v3-turbo`); ключ вшивається в збірку, тож користувачу нічого налаштовувати. У `Налаштування` → **Голосове введення** обирається лише мова розпізнавання (за замовчуванням українська, є «авто» для змішаного мовлення). Аудіо ніде не зберігається; записи без голосу не відправляються.
+
+**Для збірки:** ключ береться з `GROQ_API_KEY` — локально з `.env` (див. `.env.example`, файл у `.gitignore`), у CI з секрету репозиторію `GROQ_API_KEY`. Без ключа збірка проходить, мікрофон просто показує «недоступно».
+
+> Ключ потрапляє в main-бандл кожного релізу, тож технічно його можна витягти з `app.asar`. Якщо почнуться зловживання — замінити на свій проксі-ендпоінт; міняти лише `src/main/voice-transcriber.ts`.
+
+## 🤖 Мультиагентність
+
+Коли запит розкладається на незалежні частини («порівняй Q1 і Q2 по проєктах», «звір ці три виписки», «знайди MCP для Notion і перевір наші витрати на нього»), Claude запускає субагентів в одному ході — вони працюють паралельно, кожен у своєму контексті. У чаті під відповіддю — живі картки: тип агента, задача, поточний тул, кількість викликів, час.
+
+| Агент | Що робить | Тули |
+|---|---|---|
+| `finmap-analyst` | один зріз даних: період, рахунок, проєкт, категорія | читання Finmap |
+| `statement-reconciler` | одна виписка проти одного рахунку | `Read` + читання Finmap + `reconcile_match` |
+| `web-researcher` | API-доки, MCP-пакети, податкові правила | `WebSearch`, `WebFetch` |
+
+Усі агенти лише читають: створення і зміни робить головний агент, тож підтвердження, як і раніше, йдуть по одному. Визначення — у `src/main/subagents.ts`. Щоб субагенти бачили тули Finmap, чат віддає їх через локальний MCP-ендпоінт на `127.0.0.1` з окремим токеном на кожен запуск (`src/main/mcp-http-host.ts`).
+
 ## 🧠 Спеціалізовані скіли
 
 Folio постачається з 12 готовими **скілами** — папками інструкцій у `resources/skills/`, які Claude підвантажує автоматично, коли запит юзера матчиться з тригер-фразами скіла. Це винесена з основного промта спеціалізована логіка, що тримає основний промт коротким і дає однакову поведінку на повторюваних задачах.
@@ -200,7 +228,7 @@ Folio постачається з 12 готовими **скілами** — п�
 |---|---|
 | **Runtime** | Electron 33 |
 | **UI** | React 19 + Vite + TypeScript |
-| **AI** | [Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code) (agentic, MCP-based) |
+| **AI** | [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) (agentic, MCP-based) |
 | **Bundled runtimes** | [`uv`](https://github.com/astral-sh/uv) (Python MCP), Node.js 22 LTS (npx MCP) — per-platform |
 | **Графіки** | Recharts |
 | **Storage** | Local JSON (per-user `userData`) |
@@ -215,6 +243,7 @@ npm install
 npm run fetch-binaries   # тягне uv + Node.js 22 для поточної платформи (~130MB)
 npm run icons            # генерує іконки з SVG
 npm run build            # компілює main + renderer
+npm run check:i18n       # ключі uk/en збігаються, кирилиці поза словниками нема
 npm run dist:win         # збирає Windows installer
 # або: dist:linux  (тільки на Linux/CI з fpm)
 # або: dist:mac    (тільки на macOS)
@@ -230,12 +259,16 @@ Workflow для CI/CD: [.github/workflows/build.yml](.github/workflows/build.yml
 src/
 ├── main/                       # Node.js процес: IPC, MCP сервер, scheduler, AgentManager
 │   ├── main.ts                 # entry point
-│   ├── agent-manager.ts        # Claude Code SDK wrapper, вибір system-prompt варіанту
+│   ├── agent-manager.ts        # Claude Agent SDK: запуски, права тулів, субагенти, стрім, ліміти
+│   ├── finmap-rate-limiter.ts  # черга запитів до Finmap: 10 / 5 с, 120 / хв на компанію, синхронізація із заголовками, 429 → Retry-After
 │   ├── mcp-tools.ts            # ~50 MCP-тулів: Finmap, file bindings, scheduled tasks, gdrive_*, MCP self-management
 │   ├── reconcile-matcher.ts    # детермінований 3-pass matcher
 │   ├── gdrive-client.ts        # REST-based Drive клієнт з API-ключем (без OAuth)
 │   ├── bundled-binaries.ts     # prepend resources/binaries/<plat-arch> у PATH при старті
 │   ├── skills-installer.ts     # копіює бандл-скіли у workspace при старті
+│   ├── voice-transcriber.ts    # STT: webm → Groq Whisper (ключ вшивається при збірці)
+│   ├── subagents.ts            # визначення субагентів (finmap-analyst, statement-reconciler, web-researcher)
+│   ├── mcp-http-host.ts        # локальний MCP-ендпоінт 127.0.0.1 — щоб тули Finmap бачили субагенти
 │   ├── sync-scheduler.ts       # автозадачі + автосинхронізація + file bindings
 │   └── system-prompt.ts        # три варіанти: UI / BG / MCP-only
 ├── renderer/                   # React UI
@@ -245,10 +278,13 @@ src/
 │   │   ├── McpServersSection.tsx     # UI керування MCP-серверами
 │   │   ├── FileBindingsSection.tsx   # авто-імпорт із папок
 │   │   ├── FolderImportWizard.tsx    # 6-крокова майстерня GDrive
+│   │   ├── AppSettingsModal.tsx      # глобальні налаштування (голосове введення)
 │   │   └── …
 │   ├── styles/                 # CSS modules (Frozen Sky тема)
-│   └── hooks/                  # useVoiceInput тощо
+│   ├── i18n/                   # useT() + strings/*.ts — словники uk/en по компонентах
+│   └── hooks/useVoiceInput.ts  # push-to-talk: MediaRecorder → IPC → текст у поле
 ├── shared/types.ts             # IPC контракти + типи (FileImportBinding, McpServerConfig, …)
+├── shared/voice-presets.ts     # Groq-ендпоінт, модель, мови розпізнавання
 └── ../resources/
     ├── skills/                 # 12 спеціалізованих скілів (бандляться у release)
     └── binaries/<plat-arch>/   # uv, uvx, node (тягнуться через fetch-binaries перед dist)
@@ -256,9 +292,9 @@ src/
 
 ## 🗺️ Roadmap
 
-- [ ] **Голосовий чат** — диктуєш витрату → Claude парсить
+- [x] **Голосове введення** — диктуєш, Folio розпізнає, відправляєш після перегляду
 - [ ] **Email/IMAP парсинг** — виписки з пошти автоматично
-- [ ] **Паралельні агенти** — кілька запитів обробляються одночасно
+- [x] **Паралельні агенти** — субагенти Claude Code з живими картками в чаті
 - [ ] **Marketplace** — публікація як перший продукт у Finmap Marketplace для незалежних розробників
 
 ## 💬 Спільнота і фідбек

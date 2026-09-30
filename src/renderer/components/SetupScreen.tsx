@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ClaudeCodeStatus } from '../../shared/types';
+import { useT } from '../i18n';
 import styles from '../styles/SetupScreen.module.css';
 
 const api = (window as any).finmapAgent;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function SetupScreen({ status, onRetry, onLogin }: Props) {
+  const { t } = useT();
   const [installing, setInstalling] = useState(false);
 
   const handleInstall = async () => {
@@ -28,22 +30,22 @@ export function SetupScreen({ status, onRetry, onLogin }: Props) {
         {status === 'not_installed' && (
           <>
             <div className={styles.icon}>&#9888;</div>
-            <h2>Claude Code не встановлений</h2>
-            <p>Для роботи Folio потрібен Claude Code CLI. Натисни кнопку — відкриється термінал і встановлення пройде автоматично.</p>
+            <h2>{t('setup.notInstalledTitle')}</h2>
+            <p>{t('setup.notInstalledText')}</p>
             <div className={styles.btnGroup}>
               <button
                 className={styles.primaryBtn}
                 onClick={handleInstall}
                 disabled={installing}
               >
-                {installing ? 'Відкриваю термінал…' : 'Встановити Claude Code'}
+                {installing ? t('setup.openingTerminal') : t('setup.install')}
               </button>
               <button className={styles.secondaryBtn} onClick={onRetry}>
-                Перевірити знову
+                {t('setup.checkAgain')}
               </button>
             </div>
             <details className={styles.manual}>
-              <summary>Встановити вручну</summary>
+              <summary>{t('setup.installManually')}</summary>
               <p className={styles.osLabel}>macOS / Linux:</p>
               <code className={styles.code}>curl -fsSL https://claude.ai/install.sh | sh</code>
               <p className={styles.osLabel}>Windows (cmd):</p>
@@ -55,14 +57,14 @@ export function SetupScreen({ status, onRetry, onLogin }: Props) {
         {status === 'not_authenticated' && (
           <>
             <div className={styles.icon}>&#128274;</div>
-            <h2>Потрібна авторизація</h2>
-            <p>Claude Code встановлений, але потрібно увійти в акаунт. Натисни — відкриється термінал і пройдеш авторизацію через браузер.</p>
+            <h2>{t('setup.needAuthTitle')}</h2>
+            <p>{t('setup.needAuthText')}</p>
             <div className={styles.btnGroup}>
               <button className={styles.primaryBtn} onClick={onLogin}>
-                Увійти в Claude Code
+                {t('setup.login')}
               </button>
               <button className={styles.secondaryBtn} onClick={onRetry}>
-                Перевірити знову
+                {t('setup.checkAgain')}
               </button>
             </div>
           </>

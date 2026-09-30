@@ -90,6 +90,26 @@ function amountsMatch(a: number, b: number, eps: number): boolean {
   return Math.abs(a - b) <= eps;
 }
 
+/** Above this many plausible parts, the split (combination) search for one
+ *  target is skipped entirely — C(n, k) grows too fast to stay interactive. */
+const MAX_SPLIT_CANDIDATES = 40;
+/** Hard ceiling on combination size regardless of options.maxSplitSize. */
+const MAX_SPLIT_SIZE_LIMIT = 5;
+
+/**
+ * Narrow a split-candidate pool to parts that could actually sum to `target`:
+ * same sign as the target and no larger in magnitude (within eps). Zero-amount
+ * parts contribute nothing and are dropped. A zero target has no split.
+ */
+function plausibleSplitParts<T extends { amount: number }>(target: number, pool: T[], eps: number): T[] {
+  if (Math.abs(target) <= eps) return [];
+  const sign = Math.sign(target);
+  const limit = Math.abs(target) + eps;
+  return pool.filter(p =>
+    Math.sign(p.amount) === sign && Math.abs(p.amount) > eps && Math.abs(p.amount) <= limit
+  );
+}
+
 /**
  * Iterate all combinations of size `k` from `arr` lazily, stopping when the
  * caller returns true. Avoids materializing all combos for big arrays.
@@ -115,13 +135,17 @@ export function reconcile(
 ): ReconcileResult {
   const dateTolerance = options.dateToleranceDays ?? 1;
   const splitWindow = options.splitWindowDays ?? 7;
-  const maxSplit = options.maxSplitSize ?? 4;
+  const requestedMaxSplit = options.maxSplitSize ?? 4;
+  const maxSplit = Math.min(requestedMaxSplit, MAX_SPLIT_SIZE_LIMIT);
   const eps = options.amountEpsilon ?? 0.01;
   const mismatchMaxDays = options.dateMismatchMaxDays ?? 60;
 
   const usedBank = new Set<string>();
   const usedFinmap = new Set<string>();
   const warnings: string[] = [];
+  if (requestedMaxSplit > MAX_SPLIT_SIZE_LIMIT) {
+    warnings.push(`maxSplitSize ${requestedMaxSplit} clamped to ${MAX_SPLIT_SIZE_LIMIT} to keep the split search bounded`);
+  }
 
   const matched: MatchedPair[] = [];
   const matchedSplit: SplitMatch[] = [];
@@ -154,12 +178,20 @@ export function reconcile(
   // Bound combinatorial blow-up: skip if too many candidates.
   for (const bank of bankSorted) {
     if (usedBank.has(bank.id)) continue;
-    const candidates = finmapOps.filter(
-      fm => !usedFinmap.has(fm.id) && daysBetween(bank.date, fm.date) <= splitWindow
+    const candidates = plausibleSplitParts(
+      bank.amount,
+      finmapOps.filter(fm => !usedFinmap.has(fm.id) && daysBetween(bank.date, fm.date) <= splitWindow),
+      eps,
     );
     if (candidates.length < 2) continue;
+    if (candidates.length > MAX_SPLIT_CANDIDATES) {
+      warnings.push(
+        `bank ${bank.id}: skipped split search — ${candidates.length} Finmap candidates in window (limit ${MAX_SPLIT_CANDIDATES}); narrow the period or account`
+      );
+      continue;
+    }
 
-    const cap = candidates.length > 30 ? 3 : maxSplit;
+    const cap = candidates.length > 30 ? Math.min(3, maxSplit) : maxSplit;
     if (candidates.length > 30 && maxSplit > 3) {
       warnings.push(
         `bank ${bank.id}: capped split search to size 3 (${candidates.length} candidates in window)`
@@ -189,12 +221,20 @@ export function reconcile(
   // ── Pass 2b: 1 finmap → N bank (rarer reverse split) ──
   for (const fm of finmapOps) {
     if (usedFinmap.has(fm.id)) continue;
-    const candidates = bankOps.filter(
-      b => !usedBank.has(b.id) && daysBetween(b.date, fm.date) <= splitWindow
+    const candidates = plausibleSplitParts(
+      fm.amount,
+      bankOps.filter(b => !usedBank.has(b.id) && daysBetween(b.date, fm.date) <= splitWindow),
+      eps,
     );
     if (candidates.length < 2) continue;
+    if (candidates.length > MAX_SPLIT_CANDIDATES) {
+      warnings.push(
+        `finmap ${fm.id}: skipped reverse split search — ${candidates.length} bank candidates in window (limit ${MAX_SPLIT_CANDIDATES})`
+      );
+      continue;
+    }
 
-    const cap = candidates.length > 30 ? 3 : maxSplit;
+    const cap = candidates.length > 30 ? Math.min(3, maxSplit) : maxSplit;
 
     let found = false;
     for (let size = 2; size <= Math.min(cap, candidates.length) && !found; size++) {

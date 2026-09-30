@@ -1,0 +1,183 @@
+/* App-wide settings modal. Shares overlay/modal/field/actions with
+   NewSessionModal.module.css and section heads with SessionSettingsModal;
+   only the voice-specific controls live here. */
+
+.section {
+  margin-top: 4px;
+}
+
+.intro {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+
+.nudge {
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  border: 1px solid rgba(109, 213, 237, 0.3);
+  color: var(--accent-hover);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.okBadge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+  font-weight: 500;
+}
+
+/* Provider picker — segmented radio group */
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+
+.segBtn {
+  flex: 1;
+  padding: 8px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.segBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.segBtnActive,
+.segBtnActive:hover {
+  background: var(--accent-soft);
+  border-color: rgba(109, 213, 237, 0.45);
+  color: var(--accent-hover);
+}
+
+/* Two-class selector on purpose: it must outrank `.field span` from
+   NewSessionModal.module.css, which would otherwise restyle the badge. */
+.segBtn .segBadge {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.segBtnActive .segBadge {
+  color: var(--accent);
+}
+
+.keyRow {
+  display: flex;
+  gap: 6px;
+}
+
+.keyRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ghostBtn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  padding: 0 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.ghostBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.select {
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.select:focus {
+  border-color: var(--accent);
+}
+
+.select option {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.dangerBtn {
+  margin-right: auto;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.dangerBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.offBadge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.select:disabled {
+  opacity: 0.5;
+}

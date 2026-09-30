@@ -1,0 +1,69 @@
+/* Folder-import wizard. Composed with NewSessionModal.module.css
+   (.overlay / .modal give the dark-glass look); this file only adds what the
+   wizard needs on top: stacking above the settings modal, a wider scrollable
+   body and a header with a close button. */
+
+.overlay {
+  /* Opens on top of SessionSettingsModal, which uses the same overlay at 100 */
+  z-index: 110;
+}
+
+.modal {
+  width: 600px;
+  max-width: 92vw;
+  max-height: 88vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Override `.modal h2` spacing from the shared modal styles */
+.header h2 {
+  margin-bottom: 0;
+}
+
+.closeBtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.closeBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.body {
+  padding: 18px 24px 24px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.body h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}

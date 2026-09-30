@@ -2,16 +2,18 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { app } from 'electron';
+import { app, shell } from 'electron';
 import { FinmapAPI } from './finmap-api';
 import { reconcile } from './reconcile-matcher';
-import { GDriveClient } from './gdrive-client';
+import { GDriveClient, DriveFileTooLargeError, DRIVE_MAX_DOWNLOAD_BYTES } from './gdrive-client';
 
-let _sdk: typeof import('@anthropic-ai/claude-code') | null = null;
+let _sdk: typeof import('@anthropic-ai/claude-agent-sdk') | null = null;
 async function getSDK() {
-  if (!_sdk) _sdk = await import('@anthropic-ai/claude-code');
+  if (!_sdk) _sdk = await import('@anthropic-ai/claude-agent-sdk');
   return _sdk;
 }
+
+const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 
 function text(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -55,6 +57,21 @@ function slimEntity(e: any) {
   return r;
 }
 
+/** One invoice line. Finmap accepts an existing good by id, or a label it
+ *  will find-or-create (normalised match). */
+const INVOICE_GOOD = z.object({
+  id: z.string().optional().describe('Existing good id (from get_invoice_goods).'),
+  label: z.string().optional().describe('Good name — Finmap finds or creates it. Use when there is no id.'),
+  count: z.number(),
+  price: z.number(),
+  vat: z.number().optional().describe('VAT percent'),
+});
+
+function invalidGoods(goods: Array<{ id?: string; label?: string }>): string | null {
+  const i = goods.findIndex(g => !g.id && !g.label?.trim());
+  return i === -1 ? null : `goods[${i}] needs either id or label.`;
+}
+
 export const MUTATION_TOOLS = new Set([
   'mcp__finmap__create_operation', 'mcp__finmap__patch_operation', 'mcp__finmap__delete_operation',
   'mcp__finmap__create_category', 'mcp__finmap__update_category', 'mcp__finmap__delete_category',
@@ -67,6 +84,7 @@ export const MUTATION_TOOLS = new Set([
   'mcp__finmap__upsert_exchange_rate', 'mcp__finmap__delete_exchange_rate',
   'mcp__finmap__create_webhook', 'mcp__finmap__update_webhook', 'mcp__finmap__delete_webhook',
   'mcp__finmap__save_integration', 'mcp__finmap__update_integration', 'mcp__finmap__delete_integration',
+  'mcp__finmap__toggle_integration',
   // MCP-server self-management — adding/removing other MCP servers is a
   // sensitive operation (it spawns child processes and stores API tokens),
   // so user must confirm via the same ConfirmationBar flow.
@@ -127,7 +145,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       {
         url: z.string(),
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().default('GET'),
-        headers: z.record(z.string()).optional(),
+        headers: z.record(z.string(), z.string()).optional(),
         body: z.any().optional(),
       },
       async (input) => {
@@ -135,18 +153,29 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
           const opts: RequestInit = {
             method: input.method,
             headers: { 'Content-Type': 'application/json', ...(input.headers ?? {}) },
+            // Without a timeout a hung external API stalls the whole agent turn.
+            signal: AbortSignal.timeout(HTTP_REQUEST_TIMEOUT_MS),
           };
           if (input.body && input.method !== 'GET') {
             opts.body = typeof input.body === 'string' ? input.body : JSON.stringify(input.body);
           }
+          // Calls straight to Finmap share the company's request quota with
+          // the typed tools — queue them through the same limiter.
+          let isFinmap = false;
+          try { isFinmap = new URL(input.url).hostname === 'api.finmap.online'; } catch {}
+          if (isFinmap) await api.throttle();
           const res = await fetch(input.url, opts);
+          if (isFinmap) api.noteResponse(res);
           const responseText = await res.text();
           const truncated = responseText.length > 100000 ? responseText.substring(0, 100000) + '\n...[truncated]' : responseText;
           let parsed: any;
           try { parsed = JSON.parse(truncated); } catch { parsed = null; }
           return text({ status: res.status, body: parsed ?? truncated });
         } catch (err: any) {
-          return text({ error: err.message });
+          if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+            return text({ error: `Request timed out after ${HTTP_REQUEST_TIMEOUT_MS / 1000}s with no complete response from ${input.url}` });
+          }
+          return text({ error: err?.message ?? String(err) });
         }
       }
     ),
@@ -399,6 +428,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         sumFrom: z.number().optional(),
         sumTo: z.number().optional(),
         approved: z.boolean().optional(),
+        useDateOfPayment: z.boolean().optional().describe('Filter startDate/endDate by payment date instead of accrual date (cash-basis views).'),
         limit: z.number().int().min(1).max(100).optional().default(50),
         offset: z.number().int().min(0).optional().default(0),
         desc: z.boolean().optional().default(true),
@@ -524,7 +554,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         name: z.string().min(1).describe('Lower-case namespace, no spaces. Becomes tool prefix: mcp__<name>__<tool>.'),
         command: z.string().min(1).describe('Executable to run, e.g. "npx", "uvx", or absolute path.'),
         args: z.array(z.string()).describe('Args passed to the executable, e.g. ["-y", "@modelcontextprotocol/server-slack"].'),
-        env: z.record(z.string()).optional().describe('Env vars (API tokens). Stored locally in plaintext.'),
+        env: z.record(z.string(), z.string()).optional().describe('Env vars (API tokens). Stored locally in plaintext.'),
         autoApproveAll: z.boolean().optional().default(false).describe('When true, ALL tools from this server skip the per-call confirmation. Use only for trusted, read-mostly services.'),
       },
       async (input) => {
@@ -551,7 +581,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         name: z.string().optional(),
         command: z.string().optional(),
         args: z.array(z.string()).optional(),
-        env: z.record(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
         enabled: z.boolean().optional(),
         autoApproveAll: z.boolean().optional(),
       },
@@ -883,6 +913,11 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
             note: result.size > 2_000_000 ? 'File is large (>2MB) — only first portion may be useful for parsing.' : undefined,
           });
         } catch (err: any) {
+          // Oversized files (>15 MB) are refused by GDriveClient before they
+          // are buffered — surface that as a clear, non-retryable error.
+          if (err instanceof DriveFileTooLargeError) {
+            return text({ error: err.message, tooLarge: true, maxBytes: DRIVE_MAX_DOWNLOAD_BYTES });
+          }
           return text({ error: err?.message ?? 'Drive download failed' });
         }
       }
@@ -938,7 +973,9 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       'SPLIT: to convert single-project/category op into a split — pass projects[] or categories[] (mutually exclusive). System categories cannot be split.',
       {
         type: z.enum(['income', 'expense', 'transfer']),
-        id: z.string(),
+        id: z.string().optional().describe('Finmap operation id. Pass id OR externalId.'),
+        externalId: z.string().optional().describe('Alternative to id: the externalId set when the operation was created (imports, integrations). Updates directly — no lookup call needed.'),
+        externalDevComment: z.string().optional().describe('Note for integration developers; not visible to Finmap users.'),
         amount: z.number().min(0).optional(),
         date: z.number().optional().describe('Accrual date (Unix ms).'),
         dateOfPayment: z.number().optional().describe('Actual payment date (Unix ms). Set when payment date differs from accrual.'),
@@ -967,24 +1004,33 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         })).optional(),
       },
       async (input) => {
-        const { type, id, ...data } = input;
+        const { type, id, externalId, ...data } = input;
+        if (!id && !externalId) return text({ error: 'Pass id or externalId.' });
+        if (!id) return text(await api.patchOperationByExternalId(type, externalId as string, data));
         const map = { income: () => api.patchIncomeOperation(id, data), expense: () => api.patchExpenseOperation(id, data), transfer: () => api.patchTransferOperation(id, data) };
         return text(await map[type]());
       }
     ),
-    tool('delete_operation', 'Delete operation.',
-      { type: z.enum(['income', 'expense', 'transfer']), id: z.string() },
+    tool('delete_operation', 'Delete operation by id, or by the externalId it was created with.',
+      {
+        type: z.enum(['income', 'expense', 'transfer']),
+        id: z.string().optional().describe('Finmap operation id. Pass id OR externalId.'),
+        externalId: z.string().optional().describe('Alternative to id — delete by externalId without a lookup call.'),
+      },
       async (input) => {
-        const map = { income: () => api.deleteIncomeOperation(input.id), expense: () => api.deleteExpenseOperation(input.id), transfer: () => api.deleteTransferOperation(input.id) };
-        return text(await map[input.type]());
+        const { type, id, externalId } = input;
+        if (!id && !externalId) return text({ error: 'Pass id or externalId.' });
+        if (!id) return text(await api.deleteOperationByExternalId(type, externalId as string));
+        const map = { income: () => api.deleteIncomeOperation(id), expense: () => api.deleteExpenseOperation(id), transfer: () => api.deleteTransferOperation(id) };
+        return text(await map[type]());
       }
     ),
 
     // ── Invoices ──
-    tool('get_invoices', 'List invoices.',
+    tool('get_invoices', 'List invoices. limit ≤ 100 — paginate with offset.',
       {
-        limit: z.number().optional().default(50),
-        offset: z.number().optional().default(0),
+        limit: z.number().int().min(1).max(100).optional().default(50),
+        offset: z.number().int().min(0).optional().default(0),
         counterpartyIds: z.array(z.string()).optional(),
         startDate: z.number().optional(),
         endDate: z.number().optional(),
@@ -997,51 +1043,89 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       { id: z.string().optional(), externalId: z.string().optional() },
       async (input) => text(await api.getInvoiceDetails(input))
     ),
-    tool('create_invoice', 'Create invoice.',
+    tool('create_invoice', 'Create invoice. Goods: each item references an existing good by `id` OR names it by `label` (Finmap finds or creates the good) — no separate create_invoice_good call needed.',
       {
         invoiceNumber: z.string(),
         invoiceCompanyId: z.string(),
         supplierId: z.string(),
         invoiceCompanyDetails: z.string(),
         supplierDetails: z.string(),
-        goods: z.array(z.object({ id: z.string(), count: z.number(), price: z.number(), vat: z.number().optional() })),
+        goods: z.array(INVOICE_GOOD),
         invoiceCurrency: z.string(),
         date: z.number().optional(),
         dateOfPayment: z.number().optional(),
         comment: z.string().optional(),
         shipping: z.number().optional(),
-        discountPercentage: z.number().optional(),
+        shippingVat: z.number().optional().describe('VAT rate on the shipping line, percent.'),
+        discountPercentage: z.number().optional().describe('Use discountPercentage OR discountAmount, not both.'),
         discountAmount: z.number().optional(),
+        confirmedInvoice: z.boolean().optional(),
         externalId: z.string().optional(),
       },
-      async (input) => text(await api.createInvoice(input))
+      async (input) => {
+        const bad = invalidGoods(input.goods);
+        if (bad) return text({ error: bad });
+        return text(await api.createInvoice(input));
+      }
     ),
-    tool('update_invoice', 'Update invoice.',
+    tool('update_invoice', 'Update invoice by id, or by the externalId it was created with.',
       {
-        id: z.string(),
+        id: z.string().optional().describe('Finmap invoice id. Pass id OR externalId.'),
+        externalId: z.string().optional().describe('Alternative to id — update by externalId without a lookup call.'),
         invoiceNumber: z.string().optional(),
         invoiceCompanyId: z.string().optional(),
         supplierId: z.string().optional(),
         invoiceCompanyDetails: z.string().optional(),
         supplierDetails: z.string().optional(),
-        goods: z.array(z.object({ id: z.string(), count: z.number(), price: z.number(), vat: z.number().optional() })).optional(),
+        goods: z.array(INVOICE_GOOD).optional(),
         invoiceCurrency: z.string().optional(),
         date: z.number().optional(),
         dateOfPayment: z.number().optional(),
         comment: z.string().optional(),
         shipping: z.number().optional(),
+        shippingVat: z.number().optional().describe('VAT rate on the shipping line, percent.'),
         discountPercentage: z.number().optional(),
         discountAmount: z.number().optional(),
         confirmedInvoice: z.boolean().optional(),
       },
       async (input) => {
-        const { id, ...data } = input;
-        return text(await api.updateInvoice(id, data));
+        const { id, externalId, ...data } = input;
+        if (!id && !externalId) return text({ error: 'Pass id or externalId.' });
+        const bad = data.goods ? invalidGoods(data.goods) : null;
+        if (bad) return text({ error: bad });
+        return text(id ? await api.updateInvoice(id, data) : await api.updateInvoiceByExternalId(externalId as string, data));
       }
     ),
-    tool('delete_invoice', 'Delete invoice.',
-      { id: z.string() },
-      async (input) => text(await api.deleteInvoice(input.id))
+    tool('delete_invoice', 'Delete invoice by id, or by the externalId it was created with.',
+      { id: z.string().optional(), externalId: z.string().optional() },
+      async (input) => {
+        if (!input.id && !input.externalId) return text({ error: 'Pass id or externalId.' });
+        return text(input.id ? await api.deleteInvoice(input.id) : await api.deleteInvoiceByExternalId(input.externalId as string));
+      }
+    ),
+    tool('download_invoice_pdf',
+      'Render an invoice as PDF, save it to the user\'s Downloads/Folio folder and reveal it in the file manager. Returns the saved path. ' +
+      'language: ru | en | uk | pl | es | cz | tr | uz | pt-BR (default: Finmap\'s own).',
+      {
+        id: z.string().describe('Finmap invoice id'),
+        language: z.enum(['ru', 'en', 'uk', 'pl', 'es', 'cz', 'tr', 'uz', 'pt-BR']).optional(),
+        fileName: z.string().optional().describe('File name without extension, e.g. the invoice number. Default: invoice-<id>.'),
+      },
+      async (input) => {
+        const pdf = await api.getInvoicePdf(input.id, input.language);
+        if (pdf.length < 5 || pdf.subarray(0, 4).toString('latin1') !== '%PDF') {
+          return text({ error: 'Finmap did not return a PDF for this invoice.' });
+        }
+        const dir = path.join(app.getPath('downloads'), 'Folio');
+        fs.mkdirSync(dir, { recursive: true });
+        // Keep the name filesystem-safe on every OS.
+        const base = (input.fileName ?? `invoice-${input.id}`).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().slice(0, 120) || `invoice-${input.id}`;
+        let filePath = path.join(dir, `${base}.pdf`);
+        for (let n = 2; fs.existsSync(filePath); n++) filePath = path.join(dir, `${base} (${n}).pdf`);
+        fs.writeFileSync(filePath, pdf);
+        try { shell.showItemInFolder(filePath); } catch {}
+        return text({ saved: filePath, bytes: pdf.length });
+      }
     ),
 
     // ── Invoice goods & companies ──

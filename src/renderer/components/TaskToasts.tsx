@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { TaskStatusEvent } from '../../shared/types';
+import { useT } from '../i18n';
 import styles from '../styles/TaskToasts.module.css';
 
 const api = (window as any).finmapAgent;
@@ -18,6 +19,7 @@ interface Toast {
 const AUTO_DISMISS_MS = 6000;
 
 export function TaskToasts() {
+  const { t } = useT();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
@@ -84,40 +86,40 @@ export function TaskToasts() {
 
   return (
     <div className={styles.stack}>
-      {toasts.map(t => (
+      {toasts.map(toast => (
         <div
-          key={t.id}
-          className={`${styles.toast} ${styles[t.status]} ${t.expanded ? styles.expanded : ''}`}
+          key={toast.id}
+          className={`${styles.toast} ${styles[toast.status]} ${toast.expanded ? styles.expanded : ''}`}
           onClick={() => {
-            if (t.status === 'start' && t.toolHistory.length > 0) {
-              toggleExpand(t.id);
+            if (toast.status === 'start' && toast.toolHistory.length > 0) {
+              toggleExpand(toast.id);
             } else {
-              dismiss(t.id);
+              dismiss(toast.id);
             }
           }}
         >
           <span className={styles.icon}>
-            {t.status === 'start' && <Spinner />}
-            {t.status === 'done' && '✓'}
-            {t.status === 'error' && '!'}
+            {toast.status === 'start' && <Spinner />}
+            {toast.status === 'done' && '✓'}
+            {toast.status === 'error' && '!'}
           </span>
           <div className={styles.body}>
             <div className={styles.title}>
-              {t.status === 'start' && (t.kind === 'binding' ? 'Авто-імпорт' : 'Автозадача')}
-              {t.status === 'done' && 'Готово'}
-              {t.status === 'error' && 'Помилка'}
-              <span className={styles.name}> · {t.taskName}</span>
+              {toast.status === 'start' && (toast.kind === 'binding' ? t('toasts.autoImport') : t('toasts.scheduledTask'))}
+              {toast.status === 'done' && t('toasts.done')}
+              {toast.status === 'error' && t('toasts.error')}
+              <span className={styles.name}> · {toast.taskName}</span>
             </div>
-            {t.status === 'start' && t.toolHistory.length > 0 && !t.expanded && (
+            {toast.status === 'start' && toast.toolHistory.length > 0 && !toast.expanded && (
               <div className={styles.currentTool}>
-                {t.toolHistory[t.toolHistory.length - 1]}
-                <span className={styles.hint}> · клік щоб розгорнути</span>
+                {toast.toolHistory[toast.toolHistory.length - 1]}
+                <span className={styles.hint}> · {t('toasts.clickToExpand')}</span>
               </div>
             )}
-            {t.status === 'start' && t.expanded && (
+            {toast.status === 'start' && toast.expanded && (
               <div className={styles.toolList}>
-                {t.toolHistory.map((tool, i) => {
-                  const isLast = i === t.toolHistory.length - 1;
+                {toast.toolHistory.map((tool, i) => {
+                  const isLast = i === toast.toolHistory.length - 1;
                   return (
                     <div key={i} className={`${styles.toolItem} ${isLast ? styles.toolActive : ''}`}>
                       <span className={styles.toolDot}>{isLast ? '●' : '✓'}</span>
@@ -127,27 +129,27 @@ export function TaskToasts() {
                 })}
               </div>
             )}
-            {t.message && <div className={styles.message}>{t.message}</div>}
-            {t.status === 'start' && (
+            {toast.message && <div className={styles.message}>{toast.message}</div>}
+            {toast.status === 'start' && (
               <button
                 type="button"
                 className={styles.cancelBtn}
                 onClick={(e) => {
                   e.stopPropagation();
                   // Bindings live in a separate running-set — different cancel path
-                  if (t.kind === 'binding') api.cancelFileBinding(t.taskId);
-                  else api.cancelTask(t.taskId);
+                  if (toast.kind === 'binding') api.cancelFileBinding(toast.taskId);
+                  else api.cancelTask(toast.taskId);
                 }}
               >
-                Скасувати
+                {t('toasts.cancel')}
               </button>
             )}
           </div>
           <button
             type="button"
             className={styles.close}
-            onClick={(e) => { e.stopPropagation(); dismiss(t.id); }}
-            aria-label="Закрити"
+            onClick={(e) => { e.stopPropagation(); dismiss(toast.id); }}
+            aria-label={t('toasts.close')}
           >
             ×
           </button>
@@ -174,5 +176,7 @@ function firstLine(s: string): string {
 
 /** Strip `mcp__finmap__` prefix for readability */
 function shortToolName(name: string): string {
-  return name.replace(/^mcp__[^_]+__/, '');
+  // Non-greedy server part so names with `_` work: mcp__google_drive__list_files → list_files
+  const match = name.match(/^mcp__.+?__(.+)$/);
+  return match ? match[1] : name;
 }

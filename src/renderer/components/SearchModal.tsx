@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { SearchResult } from '../../shared/types';
+import { useT } from '../i18n';
 import styles from '../styles/SearchModal.module.css';
 
 const api = (window as any).finmapAgent;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function SearchModal({ onClose, onJump }: Props) {
+  const { t, locale } = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selected, setSelected] = useState(0);
@@ -24,13 +26,20 @@ export function SearchModal({ onClose, onJump }: Props) {
       setSelected(0);
       return;
     }
+    // A slow response for an older query must not overwrite newer results
+    // (or refill the list after the query was cleared).
+    let stale = false;
     const t = setTimeout(() => {
       api.searchMessages(q).then((r: SearchResult[]) => {
+        if (stale) return;
         setResults(r);
         setSelected(0);
       });
     }, 120);
-    return () => clearTimeout(t);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [query]);
 
   // Keyboard navigation
@@ -68,15 +77,15 @@ export function SearchModal({ onClose, onJump }: Props) {
     const d = new Date(ts);
     const now = new Date();
     if (d.toDateString() === now.toDateString()) {
-      return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+      return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
     }
     const sameYear = d.getFullYear() === now.getFullYear();
-    return d.toLocaleDateString('uk-UA',
+    return d.toLocaleDateString(locale,
       sameYear
         ? { day: '2-digit', month: '2-digit' }
         : { day: '2-digit', month: '2-digit', year: 'numeric' }
     );
-  }, []);
+  }, [locale]);
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -91,7 +100,7 @@ export function SearchModal({ onClose, onJump }: Props) {
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Пошук по всіх чатах..."
+            placeholder={t('search.placeholder')}
             autoFocus
           />
           <kbd className={styles.esc}>ESC</kbd>
@@ -99,10 +108,10 @@ export function SearchModal({ onClose, onJump }: Props) {
 
         <div className={styles.results} ref={listRef}>
           {query.trim().length < 2 && (
-            <div className={styles.hint}>Почни вводити щоб шукати по всіх повідомленнях</div>
+            <div className={styles.hint}>{t('search.hintStart')}</div>
           )}
           {query.trim().length >= 2 && results.length === 0 && (
-            <div className={styles.hint}>Нічого не знайдено</div>
+            <div className={styles.hint}>{t('search.noResults')}</div>
           )}
           {results.map((r, i) => (
             <button
@@ -117,7 +126,7 @@ export function SearchModal({ onClose, onJump }: Props) {
             >
               <div className={styles.resultHead}>
                 <span className={styles.resultSession}>{r.sessionName}</span>
-                <span className={styles.resultRole}>{r.role === 'user' ? 'Ти' : 'Асистент'}</span>
+                <span className={styles.resultRole}>{r.role === 'user' ? t('search.roleUser') : t('search.roleAssistant')}</span>
                 <span className={styles.resultWhen}>{formatWhen(r.timestamp)}</span>
               </div>
               <div className={styles.resultSnippet}>
@@ -130,9 +139,9 @@ export function SearchModal({ onClose, onJump }: Props) {
         </div>
 
         <div className={styles.footer}>
-          <span><kbd>↑</kbd><kbd>↓</kbd> навігація</span>
-          <span><kbd>⏎</kbd> відкрити</span>
-          <span><kbd>ESC</kbd> закрити</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> {t('search.navigate')}</span>
+          <span><kbd>⏎</kbd> {t('search.open')}</span>
+          <span><kbd>ESC</kbd> {t('search.close')}</span>
         </div>
       </div>
     </div>

@@ -1,9 +1,9 @@
 import { getClaudePath } from './claude-status';
 import type { ClaudeModelInfo } from '../shared/types';
 
-let _sdk: typeof import('@anthropic-ai/claude-code') | null = null;
+let _sdk: typeof import('@anthropic-ai/claude-agent-sdk') | null = null;
 async function getSDK() {
-  if (!_sdk) _sdk = await import('@anthropic-ai/claude-code');
+  if (!_sdk) _sdk = await import('@anthropic-ai/claude-agent-sdk');
   return _sdk;
 }
 
@@ -65,6 +65,10 @@ async function fetchModels(cwd: string): Promise<ClaudeModelInfo[]> {
       // MCP servers entirely and keep the spawn fast.
       mcpServers: {},
       strictMcpConfig: true,
+      // The Agent SDK loads user/project/local settings by default; a model
+      // probe needs none of them (and skipping them keeps hooks/plugins from
+      // running just to populate a dropdown).
+      settingSources: [],
     },
   });
 
@@ -92,9 +96,9 @@ async function fetchModels(cwd: string): Promise<ClaudeModelInfo[]> {
     return models;
   } finally {
     abortController.abort();
-    // The generator was never iterated, so nothing throws — but the SDK also
-    // exposes interrupt() and we call it defensively to close the transport.
-    try { await q.interrupt(); } catch {}
+    // No turn was ever sent, so there is nothing to interrupt — close() tears
+    // down the transport and kills the CLI subprocess.
+    try { q.close(); } catch {}
   }
 }
 

@@ -1,6 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '../shared/types';
-import type { ChatSession, Integration, ScheduledTask, SearchResult, TaskStatusEvent, McpServerConfig, FileImportBinding, UpdateStatusEvent, ClaudeModelInfo } from '../shared/types';
+import type { ChatSession, Integration, ScheduledTask, SearchResult, TaskStatusEvent, McpServerConfig, FileImportBinding, UpdateStatusEvent, ClaudeModelInfo, AppSettings, TranscribeResult, AttachedFile, MessageUsage, ContextUsage, AgentEvent, RateLimitSnapshot } from '../shared/types';
 
 const api = {
   // App meta
@@ -54,7 +54,18 @@ const api = {
   rejectMutation: (sessionId: string) =>
     ipcRenderer.invoke(IPC.REJECT_MUTATION, sessionId),
   selectFiles: () =>
-    ipcRenderer.invoke(IPC.SELECT_FILES) as Promise<{ name: string; path: string; type: string; size: number; dataUrl?: string }[]>,
+    ipcRenderer.invoke(IPC.SELECT_FILES) as Promise<AttachedFile[]>,
+
+  // Drag-and-drop / paste. File objects can't cross IPC, and Electron ≥32
+  // dropped `File.path`, so preload resolves the OS path here; main does the
+  // rest. Path-less blobs (screenshots) go through savePastedFile instead.
+  getPathForFile: (file: File): string => {
+    try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+  },
+  attachFilePaths: (paths: string[]) =>
+    ipcRenderer.invoke(IPC.ATTACH_FILE_PATHS, paths) as Promise<AttachedFile[]>,
+  savePastedFile: (bytes: Uint8Array, mimeType: string, name?: string) =>
+    ipcRenderer.invoke(IPC.SAVE_PASTED_FILE, bytes, mimeType, name) as Promise<AttachedFile>,
 
   // Stream listeners
   onStreamChunk: (cb: (sessionId: string, text: string) => void) => {
@@ -72,10 +83,25 @@ const api = {
     ipcRenderer.on(IPC.STREAM_TOOL_PERMISSION, handler);
     return () => ipcRenderer.removeListener(IPC.STREAM_TOOL_PERMISSION, handler);
   },
-  onStreamDone: (cb: (sessionId: string, fullText: string) => void) => {
-    const handler = (_e: any, sessionId: string, text: string) => cb(sessionId, text);
+  onStreamDone: (cb: (sessionId: string, fullText: string, usage?: MessageUsage) => void) => {
+    const handler = (_e: any, sessionId: string, text: string, usage?: MessageUsage) => cb(sessionId, text, usage);
     ipcRenderer.on(IPC.STREAM_DONE, handler);
     return () => ipcRenderer.removeListener(IPC.STREAM_DONE, handler);
+  },
+  onStreamUsage: (cb: (sessionId: string, usage: ContextUsage) => void) => {
+    const handler = (_e: any, sessionId: string, usage: ContextUsage) => cb(sessionId, usage);
+    ipcRenderer.on(IPC.STREAM_USAGE, handler);
+    return () => ipcRenderer.removeListener(IPC.STREAM_USAGE, handler);
+  },
+  onStreamAgent: (cb: (sessionId: string, event: AgentEvent) => void) => {
+    const handler = (_e: any, sessionId: string, event: AgentEvent) => cb(sessionId, event);
+    ipcRenderer.on(IPC.STREAM_AGENT, handler);
+    return () => ipcRenderer.removeListener(IPC.STREAM_AGENT, handler);
+  },
+  onStreamCompact: (cb: (sessionId: string, preTokens: number) => void) => {
+    const handler = (_e: any, sessionId: string, preTokens: number) => cb(sessionId, preTokens);
+    ipcRenderer.on(IPC.STREAM_COMPACT, handler);
+    return () => ipcRenderer.removeListener(IPC.STREAM_COMPACT, handler);
   },
   onStreamError: (cb: (sessionId: string, error: string) => void) => {
     const handler = (_e: any, sessionId: string, error: string) => cb(sessionId, error);
@@ -161,6 +187,25 @@ const api = {
     ipcRenderer.invoke(IPC.GDRIVE_LIST_FILES, { apiKey, folderId }) as Promise<
       { ok: true; files: any[] } | { ok: false; error: string }
     >,
+
+  // App-wide settings (voice input etc.)
+  getAppSettings: () => ipcRenderer.invoke(IPC.GET_APP_SETTINGS) as Promise<AppSettings>,
+  updateAppSettings: (updates: Partial<AppSettings>) =>
+    ipcRenderer.invoke(IPC.UPDATE_APP_SETTINGS, updates) as Promise<AppSettings>,
+
+  // Voice input — see renderer/hooks/useVoiceInput.ts
+  requestMicAccess: () => ipcRenderer.invoke(IPC.REQUEST_MIC_ACCESS) as Promise<boolean>,
+  voiceAvailable: () => ipcRenderer.invoke(IPC.VOICE_AVAILABLE) as Promise<boolean>,
+
+  // Claude plan limits (account-wide, not per session)
+  getRateLimit: () => ipcRenderer.invoke(IPC.GET_RATE_LIMIT) as Promise<RateLimitSnapshot | null>,
+  onRateLimit: (cb: (snapshot: RateLimitSnapshot) => void) => {
+    const handler = (_e: any, snapshot: RateLimitSnapshot) => cb(snapshot);
+    ipcRenderer.on(IPC.RATE_LIMIT, handler);
+    return () => ipcRenderer.removeListener(IPC.RATE_LIMIT, handler);
+  },
+  transcribeAudio: (audio: Uint8Array, mimeType: string) =>
+    ipcRenderer.invoke(IPC.TRANSCRIBE_AUDIO, audio, mimeType) as Promise<TranscribeResult>,
 
   // For FolderImportWizard's account-picker step
   getFinmapAccounts: (finmapApiKey: string) =>

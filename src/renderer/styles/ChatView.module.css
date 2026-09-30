@@ -3,6 +3,104 @@
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  position: relative; /* anchors the drag-and-drop overlay */
+}
+
+/* Context-window fill badge in the header */
+.contextBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  -webkit-app-region: no-drag; /* otherwise the title bar swallows hover → no tooltip */
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.contextRing {
+  flex-shrink: 0;
+}
+
+.contextWarn {
+  color: var(--warning);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.contextDanger {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Folio's own markers between messages (history compacted) */
+.systemDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  user-select: none;
+}
+
+.systemDivider::before,
+.systemDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+/* Cost / duration under an assistant reply — lives in the hover-only meta row */
+.usageMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  cursor: default;
+}
+
+/* Drag-and-drop target */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 8, 0.7);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  pointer-events: none;
+  animation: drop-in 0.12s ease-out;
+}
+
+.dropOverlayInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 40px;
+  border: 2px dashed rgba(109, 213, 237, 0.5);
+  border-radius: var(--radius-xl);
+  background: rgba(12, 12, 18, 0.9);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.dropIcon {
+  font-size: 28px;
+  color: var(--accent);
+}
+
+@keyframes drop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .header {
@@ -558,15 +656,84 @@
   cursor: default;
 }
 
-.iconBtnActive {
+/* Recording — must also beat `.iconBtn:hover:not(:disabled)` (0,3,0). */
+.iconBtnActive,
+.iconBtnActive:hover:not(:disabled) {
   background: var(--danger);
   border-color: var(--danger);
+  color: #fff;
   animation: pulse-record 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse-record {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+/* Starting / transcribing — disabled, but not dimmed: the spinner is the signal. */
+.iconBtnBusy:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: voice-spin 0.8s linear infinite;
+}
+
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Recording / transcribing / error pill — absolutely positioned over the
+   input's top edge (.inputArea is position: relative) so it never takes
+   room from the textarea. */
+.voiceStatus {
+  position: absolute;
+  right: 66px;
+  top: -14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  max-width: calc(100% - 120px);
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow);
+  animation: voice-pill-in 0.15s ease-out;
+}
+
+.voiceStatusError {
+  color: #fca5a5;
+  background: rgba(60, 12, 12, 0.95);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.recDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  animation: pulse-record 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes voice-pill-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Attached files bar (above input) */

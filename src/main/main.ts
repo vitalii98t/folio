@@ -1,12 +1,14 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } from 'electron';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { checkClaudeCodeStatus, getClaudePath } from './claude-status';
+import { pathToFileURL } from 'url';
+import { checkClaudeCodeStatus, getClaudeShellCommand } from './claude-status';
 
-/** Open the OS-native terminal window and run the given command in it. */
-function openTerminalWithCommand(command: string) {
+/** Open the OS-native terminal window and run the given command in it.
+ *  `lang` picks the language of the "[Folio] …" lines echoed on Windows. */
+function openTerminalWithCommand(command: string, lang?: UiLanguage) {
   if (process.platform === 'darwin') {
     // Terminal.app via osascript
     const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -22,7 +24,7 @@ function openTerminalWithCommand(command: string) {
     // so we don't have to escape long quoted strings on the command line.
     const batPath = path.join(os.tmpdir(), `folio-launch-${Date.now()}.bat`);
     const batBody =
-      `@echo off\r\nchcp 65001 >nul\r\n${command}\r\nset _ec=%ERRORLEVEL%\r\necho.\r\nif not "%_ec%"=="0" echo [Folio] Команда завершилась з кодом %_ec%.\r\necho [Folio] Готово. Можеш закривати вікно.\r\n`;
+      `@echo off\r\nchcp 65001 >nul\r\n${command}\r\nset _ec=%ERRORLEVEL%\r\necho.\r\nif not "%_ec%"=="0" echo ${mainT(lang, 'terminal.exitCode', { code: '%_ec%' })}\r\necho ${mainT(lang, 'terminal.done')}\r\n`;
     fs.writeFileSync(batPath, batBody);
     spawn('cmd.exe', ['/c', 'start', '""', 'cmd', '/k', batPath], {
       detached: true, stdio: 'ignore', shell: false,
@@ -51,8 +53,73 @@ import { listClaudeModels } from './claude-models';
 import { installBundledSkills } from './skills-installer';
 import { setupBundledBinariesPath } from './bundled-binaries';
 import { parseFileToText } from './file-parser';
+import { transcribeAudio, isVoiceAvailable } from './voice-transcriber';
+import { DEFAULT_VOICE_LANGUAGE } from '../shared/voice-presets';
+import type { SendHandlers } from './agent-manager';
+import { mainT } from './i18n';
+import { mcpHttpHost } from './mcp-http-host';
 import { IPC } from '../shared/types';
-import type { ChatSession, Integration, ScheduledTask, McpServerConfig, FileImportBinding } from '../shared/types';
+import type { ChatSession, Integration, ScheduledTask, McpServerConfig, FileImportBinding, AppSettings, AttachedFile, UiLanguage } from '../shared/types';
+
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
+
+/** Shape a local file the way the renderer's attachment chips expect —
+ *  images under 10 MB get an inline data URL for the thumbnail. Shared by
+ *  the file picker, drag-and-drop and clipboard paste. */
+function describeAttachedFile(filePath: string): AttachedFile {
+  const stat = fs.statSync(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  const isImage = IMAGE_EXTS.includes(ext);
+  let dataUrl: string | undefined;
+  if (isImage && stat.size < 10 * 1024 * 1024) {
+    const buf = fs.readFileSync(filePath);
+    const mime =
+      ext === '.png' ? 'image/png'
+      : ext === '.gif' ? 'image/gif'
+      : ext === '.webp' ? 'image/webp'
+      : ext === '.bmp' ? 'image/bmp'
+      : 'image/jpeg';
+    dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+  }
+  return {
+    name: path.basename(filePath),
+    path: filePath,
+    type: isImage ? 'image' : 'document',
+    size: stat.size,
+    dataUrl,
+  };
+}
+
+/** Pasted screenshots live under userData/attachments; anything older than
+ *  this is deleted on the next paste so the folder doesn't grow forever.
+ *  Chat history keeps its own inline thumbnail, so old rows still render. */
+const PASTE_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
+
+function prunePastedFiles(dir: string) {
+  try {
+    const cutoff = Date.now() - PASTE_MAX_AGE_MS;
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      try { if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p); } catch {}
+    }
+  } catch {}
+}
+
+function extensionForMime(mime: string, name?: string): string {
+  const fromName = name ? path.extname(name).toLowerCase() : '';
+  if (fromName && fromName.length <= 6) return fromName;
+  switch ((mime || '').toLowerCase()) {
+    case 'image/png': return '.png';
+    case 'image/jpeg': return '.jpg';
+    case 'image/gif': return '.gif';
+    case 'image/webp': return '.webp';
+    case 'image/bmp': return '.bmp';
+    case 'application/pdf': return '.pdf';
+    case 'text/plain': return '.txt';
+    case 'text/csv': return '.csv';
+    default: return '.bin';
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 const sessionStore = new SessionStore();
@@ -127,38 +194,47 @@ async function createWindow() {
     },
   });
 
-  // Try Vite dev server first, fall back to built files
+  // Dev: try the Vite dev server first. Never in a packaged build — any
+  // unrelated project on :5173 would otherwise get Folio's preload API.
   const devUrl = 'http://localhost:5173';
   let useDev = false;
-  try {
-    const res = await fetch(devUrl);
-    useDev = res.ok;
-  } catch {}
+  if (!app.isPackaged) {
+    try {
+      const res = await fetch(devUrl, { signal: AbortSignal.timeout(1500) });
+      useDev = res.ok;
+    } catch {}
+  }
 
+  const indexPath = path.join(__dirname, '../renderer/index.html');
   if (useDev) {
     mainWindow.loadURL(devUrl);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    mainWindow.loadFile(indexPath);
   }
+  const indexUrl = pathToFileURL(indexPath).href;
 
   // External links must open in the user's default browser, not hijack the
   // app window. Two handlers cover both ways a link can fire:
   //   • target="_blank" / window.open()  → setWindowOpenHandler
   //   • plain <a href> click             → will-navigate
-  // We let local (dev-server + file://) URLs through so the renderer can
-  // do its own routing without us blocking it.
-  const isInternalUrl = (url: string) =>
-    url.startsWith(devUrl) || url.startsWith('file://') || url === 'about:blank';
+  // Only the app's own page may load in the window. A relative link in a
+  // model reply (e.g. "./report.xlsx") resolves to another file:// URL and
+  // would replace the UI — block it. Web/mail links open in the browser.
+  const isAppUrl = (url: string) =>
+    url.split('#')[0] === indexUrl || (useDev && url.startsWith(devUrl));
+  const openOutside = (url: string) => {
+    if (/^(https?:|mailto:)/i.test(url)) shell.openExternal(url).catch(() => {});
+  };
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isInternalUrl(url)) shell.openExternal(url).catch(() => {});
+    openOutside(url);
     return { action: 'deny' };
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isInternalUrl(url)) return;
+    if (isAppUrl(url)) return;
     event.preventDefault();
-    shell.openExternal(url).catch(() => {});
+    openOutside(url);
   });
 
   mainWindow.on('closed', () => {
@@ -167,6 +243,25 @@ async function createWindow() {
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────
+
+/** Stream a chat run's events back to the window that asked. Replies to a
+ *  closed/reloaded window are dropped instead of throwing. */
+function chatHandlers(event: Electron.IpcMainEvent, sessionId: string): SendHandlers {
+  const reply = (channel: string, ...args: unknown[]) => {
+    if (!event.sender.isDestroyed()) event.reply(channel, sessionId, ...args);
+  };
+  return {
+    onChunk: (text) => reply(IPC.STREAM_CHUNK, text),
+    onToolCall: (toolName, input) => reply(IPC.STREAM_TOOL_CALL, toolName, input),
+    onDone: (fullText, usage) => reply(IPC.STREAM_DONE, fullText, usage),
+    onError: (error) => reply(IPC.STREAM_ERROR, error),
+    onToolPermission: (toolName, input) => reply(IPC.STREAM_TOOL_PERMISSION, toolName, input),
+    onAuthError: (message) => reply(IPC.STREAM_AUTH_ERROR, message),
+    onUsage: (usage) => reply(IPC.STREAM_USAGE, usage),
+    onCompact: (preTokens) => reply(IPC.STREAM_COMPACT, preTokens),
+    onAgent: (agentEvent) => reply(IPC.STREAM_AGENT, agentEvent),
+  };
+}
 
 function setupIPC() {
   // App version — single source of truth is package.json `version`, read via
@@ -193,19 +288,20 @@ function setupIPC() {
   // wipe Folio's per-session `claudeSessionId` because those session ids
   // belong to the now-invalid account and resume would fail on first message.
   ipcMain.handle(IPC.CLAUDE_LOGOUT, async () => {
-    const claudePath = getClaudePath();
-    if (!claudePath) return { ok: false, error: 'Claude Code не знайдено на цій машині.' };
+    const lang = sessionStore.getSettings().uiLanguage;
+    const claudeCmd = getClaudeShellCommand();
+    if (!claudeCmd) return { ok: false, error: mainT(lang, 'logout.notFound') };
 
     const { execSync } = await import('child_process');
     try {
-      execSync(`"${claudePath}" logout`, { stdio: 'pipe', timeout: 10_000, encoding: 'utf-8' });
+      execSync(`${claudeCmd} logout`, { stdio: 'pipe', timeout: 10_000, encoding: 'utf-8' });
     } catch (err: any) {
       // `claude logout` returns non-zero if already logged out — that's
       // success for our purposes (target state achieved).
       const msg = err?.message ?? '';
       if (!/not logged in|already|no credentials/i.test(msg)) {
         // Real failure — surface it
-        return { ok: false, error: msg || 'Не вдалося виконати logout.' };
+        return { ok: false, error: msg || mainT(lang, 'logout.failed') };
       }
     }
 
@@ -224,27 +320,28 @@ function setupIPC() {
     // a terminal restart to pick up PATH changes). Use the resolved binary
     // path so the new terminal can invoke it directly. Running claude with
     // no args triggers its interactive login flow when credentials are missing.
-    const claudePath = getClaudePath();
-    const cmd = claudePath ? `"${claudePath}"` : 'claude';
-    openTerminalWithCommand(cmd);
+    const claudeCmd = getClaudeShellCommand();
+    const cmd = claudeCmd ?? 'claude';
+    openTerminalWithCommand(cmd, sessionStore.getSettings().uiLanguage);
   });
 
   ipcMain.handle(IPC.INSTALL_CLAUDE_CODE, async () => {
+    const lang = sessionStore.getSettings().uiLanguage;
     if (process.platform === 'win32') {
       // Multi-line script — easier to follow in the terminal than one mega &&-chain,
       // and lets us bail out early with a clear message if curl fails.
       const cmds = [
-        'echo [Folio] Завантажую інсталятор Claude Code...',
+        `echo ${mainT(lang, 'install.downloading')}`,
         'curl -fsSL https://claude.ai/install.cmd -o "%TEMP%\\claude-install.cmd"',
-        'if errorlevel 1 (echo [Folio] Не вдалося завантажити інсталятор. Перевір підключення до інтернету. && goto :end)',
-        'echo [Folio] Запускаю інсталятор...',
+        `if errorlevel 1 (echo ${mainT(lang, 'install.downloadFailed')} && goto :end)`,
+        `echo ${mainT(lang, 'install.running')}`,
         'call "%TEMP%\\claude-install.cmd"',
         'del "%TEMP%\\claude-install.cmd" 2>nul',
         ':end',
       ].join('\r\n');
-      openTerminalWithCommand(cmds);
+      openTerminalWithCommand(cmds, lang);
     } else {
-      openTerminalWithCommand('curl -fsSL https://claude.ai/install.sh | sh');
+      openTerminalWithCommand('curl -fsSL https://claude.ai/install.sh | sh', lang);
     }
   });
 
@@ -309,22 +406,11 @@ function setupIPC() {
       return;
     }
 
+    const h = chatHandlers(event, sessionId);
     try {
-      await agentManager.sendMessage(
-        session,
-        message,
-        (text: string) => event.reply(IPC.STREAM_CHUNK, sessionId, text),
-        (toolName: string, input: Record<string, unknown>) =>
-          event.reply(IPC.STREAM_TOOL_CALL, sessionId, toolName, input),
-        (fullText: string) => event.reply(IPC.STREAM_DONE, sessionId, fullText),
-        (error: string) => event.reply(IPC.STREAM_ERROR, sessionId, error),
-        (toolName: string, input: Record<string, unknown>) =>
-          event.reply(IPC.STREAM_TOOL_PERMISSION, sessionId, toolName, input),
-        undefined,
-        (authMsg: string) => event.reply(IPC.STREAM_AUTH_ERROR, sessionId, authMsg),
-      );
+      await agentManager.sendMessage(session, message, h);
     } catch (err: any) {
-      event.reply(IPC.STREAM_ERROR, sessionId, err.message ?? 'Unknown error');
+      h.onError(err?.message ?? 'Unknown error');
     }
   });
 
@@ -353,25 +439,33 @@ function setupIPC() {
       ],
     });
     if (result.canceled) return [];
+    return result.filePaths.map(describeAttachedFile);
+  });
 
-    return result.filePaths.map(filePath => {
-      const stat = fs.statSync(filePath);
-      const ext = path.extname(filePath).toLowerCase();
-      const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'].includes(ext);
-      let dataUrl: string | undefined;
-      if (isImage && stat.size < 10 * 1024 * 1024) {
-        const buf = fs.readFileSync(filePath);
-        const mime = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-        dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
-      }
-      return {
-        name: path.basename(filePath),
-        path: filePath,
-        type: isImage ? 'image' : 'document',
-        size: stat.size,
-        dataUrl,
-      };
-    });
+  // Drag-and-drop from the OS. Preload resolved File → path via webUtils;
+  // we describe them exactly like picker results.
+  ipcMain.handle(IPC.ATTACH_FILE_PATHS, async (_event, paths: string[]) => {
+    const out: AttachedFile[] = [];
+    for (const p of paths ?? []) {
+      try {
+        if (typeof p === 'string' && fs.statSync(p).isFile()) out.push(describeAttachedFile(p));
+      } catch {}
+    }
+    return out;
+  });
+
+  // Clipboard paste of raw bytes (screenshot, image copied from a browser).
+  // No path exists, so materialise it under userData/attachments and return
+  // a normal attachment.
+  ipcMain.handle(IPC.SAVE_PASTED_FILE, async (_event, bytes: Uint8Array, mimeType: string, suggestedName?: string) => {
+    const dir = path.join(app.getPath('userData'), 'attachments');
+    fs.mkdirSync(dir, { recursive: true });
+    prunePastedFiles(dir);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const rand = Math.random().toString(36).slice(2, 8);
+    const filePath = path.join(dir, `paste-${stamp}-${rand}${extensionForMime(mimeType, suggestedName)}`);
+    fs.writeFileSync(filePath, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    return describeAttachedFile(filePath);
   });
 
   // Chat with file attachments
@@ -382,7 +476,11 @@ function setupIPC() {
       return;
     }
 
-    // Build prompt with file references — parse Excel/PDF/CSV/etc properly
+    const h = chatHandlers(event, sessionId);
+    try {
+    // Build prompt with file references — parse Excel/PDF/CSV/etc properly.
+    // Inside the try: a file moved or deleted after attaching must end the
+    // spinner with an error, not reject silently.
     let prompt = message;
     if (filePaths.length > 0) {
       const fileDescriptions = await Promise.all(filePaths.map(async (fp) => {
@@ -397,20 +495,9 @@ function setupIPC() {
       prompt = `${message}\n\n${fileDescriptions.join('\n\n')}`;
     }
 
-    try {
-      await agentManager.sendMessage(
-        session, prompt,
-        (text: string) => event.reply(IPC.STREAM_CHUNK, sessionId, text),
-        (toolName: string, input: Record<string, unknown>) => event.reply(IPC.STREAM_TOOL_CALL, sessionId, toolName, input),
-        (fullText: string) => event.reply(IPC.STREAM_DONE, sessionId, fullText),
-        (error: string) => event.reply(IPC.STREAM_ERROR, sessionId, error),
-        (toolName: string, input: Record<string, unknown>) =>
-          event.reply(IPC.STREAM_TOOL_PERMISSION, sessionId, toolName, input),
-        undefined,
-        (authMsg: string) => event.reply(IPC.STREAM_AUTH_ERROR, sessionId, authMsg),
-      );
+      await agentManager.sendMessage(session, prompt, h);
     } catch (err: any) {
-      event.reply(IPC.STREAM_ERROR, sessionId, err.message ?? 'Unknown error');
+      h.onError(err?.message ?? 'Unknown error');
     }
   });
 
@@ -529,6 +616,40 @@ function setupIPC() {
     }
   });
 
+  // App-wide settings (languages, voice recognition language).
+  ipcMain.handle(IPC.GET_APP_SETTINGS, async () => {
+    return sessionStore.getSettings();
+  });
+  ipcMain.handle(IPC.UPDATE_APP_SETTINGS, async (_event, updates: Partial<AppSettings>) => {
+    return sessionStore.updateSettings(updates);
+  });
+
+  // macOS gates the microphone behind a TCC prompt. Asking from main before
+  // the renderer's getUserMedia shows the native dialog instead of a silent
+  // NotAllowedError. Windows/Linux hand the mic over directly.
+  ipcMain.handle(IPC.REQUEST_MIC_ACCESS, async () => {
+    if (process.platform !== 'darwin') return true;
+    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+    return systemPreferences.askForMediaAccess('microphone');
+  });
+
+  // Voice uses a key baked into the build; the renderer only needs to know
+  // whether this build has one.
+  ipcMain.handle(IPC.VOICE_AVAILABLE, async () => isVoiceAvailable());
+
+  // Claude plan limits (5-hour session window + weekly), account-wide.
+  ipcMain.handle(IPC.GET_RATE_LIMIT, async () => agentManager.getRateLimit());
+  agentManager.onRateLimit = (snapshot) => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(IPC.RATE_LIMIT, snapshot);
+  };
+
+  // Renderer records a webm/opus clip; main owns the key and does the upload.
+  ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audio: Uint8Array, mimeType: string) => {
+    const settings = sessionStore.getSettings();
+    const language = settings.voice?.language ?? DEFAULT_VOICE_LANGUAGE;
+    return transcribeAudio(language, audio, mimeType || 'audio/webm', settings.uiLanguage);
+  });
+
   // Used by the FolderImportWizard to populate the "where to import" picker.
   // Takes a Finmap apiKey from the session so renderer doesn't need to keep
   // it around — main creates a fresh FinmapAPI client per call.
@@ -569,7 +690,21 @@ function migrateLegacyData() {
   }
 }
 
+// One Folio at a time: a second instance would run its own scheduler (every
+// task twice → duplicate Finmap operations) and race on the JSON store.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+}
+
 app.whenReady().then(() => {
+  if (!gotLock) return;
   migrateLegacyData();
 
   // MUST be before AgentManager spawns anything — child processes inherit
@@ -604,5 +739,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   syncScheduler.stop();
+  mcpHttpHost.stop();
   if (process.platform !== 'darwin') app.quit();
 });

@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { ChatSession } from '../../shared/types';
+import { useT } from '../i18n';
 import styles from '../styles/NewSessionModal.module.css';
 import notesStyles from '../styles/SessionSettingsModal.module.css';
+import wizardStyles from '../styles/FolderImportWizard.module.css';
 
 const api = (window as any).finmapAgent;
 
 interface Props {
   session: ChatSession;
+  /** Persists session changes through App (keeps `sessions` state fresh). */
+  onUpdateSession: (id: string, updates: Partial<ChatSession>) => Promise<void>;
   onClose: () => void;
   /** Called when binding is created — parent reloads its list. */
   onCreated?: () => void;
@@ -29,14 +34,6 @@ interface DriveFile {
   size?: number;
 }
 
-const INTERVAL_OPTIONS = [
-  { value: 15, label: '15 хв' },
-  { value: 30, label: '30 хв' },
-  { value: 60, label: '1 година' },
-  { value: 360, label: '6 годин' },
-  { value: 1440, label: '1 день' },
-];
-
 /**
  * Native step-by-step wizard for setting up a Google Drive folder import.
  *
@@ -46,7 +43,8 @@ const INTERVAL_OPTIONS = [
  * account, choose how to handle the latest file, save. Future runs happen
  * automatically via SyncScheduler.runBinding.
  */
-export function FolderImportWizard({ session, onClose, onCreated }: Props) {
+export function FolderImportWizard({ session, onUpdateSession, onClose, onCreated }: Props) {
+  const { t, locale } = useT();
   const [step, setStep] = useState<Step>(session.googleDriveApiKey ? 'folder' : 'apiKey');
   const [apiKey, setApiKey] = useState(session.googleDriveApiKey ?? '');
   const [folderUrl, setFolderUrl] = useState('');
@@ -67,6 +65,15 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
   const [importLatest, setImportLatest] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Polling interval choices (minutes) with localised labels
+  const intervalOptions = [
+    { value: 15, label: t('folderImport.interval.fifteenMin') },
+    { value: 30, label: t('folderImport.interval.thirtyMin') },
+    { value: 60, label: t('folderImport.interval.oneHour') },
+    { value: 360, label: t('folderImport.interval.sixHours') },
+    { value: 1440, label: t('folderImport.interval.oneDay') },
+  ];
 
   // Load Finmap accounts when we reach the account step
   useEffect(() => {
@@ -99,11 +106,11 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
       setFiles(result.sampleFiles);
       // Persist API key on session if it changed
       if (session.googleDriveApiKey !== apiKey.trim()) {
-        await api.updateSession(session.id, { googleDriveApiKey: apiKey.trim() });
+        await onUpdateSession(session.id, { googleDriveApiKey: apiKey.trim() });
       }
       setStep('account');
     } catch (err: any) {
-      setValidateError(err?.message ?? 'Помилка перевірки');
+      setValidateError(err?.message ?? t('folderImport.validateError'));
     } finally {
       setValidating(false);
     }
@@ -116,7 +123,7 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
       // Fetch the complete file list to seed baseline correctly
       const listResult = await api.gdriveListFiles(apiKey.trim(), folderId);
       if (!listResult.ok) {
-        setSaveError(`Не вдалося отримати повний список файлів: ${listResult.error}`);
+        setSaveError(t('folderImport.listFilesError', { error: listResult.error }));
         return;
       }
       const allFiles: DriveFile[] = listResult.files ?? [];
@@ -152,7 +159,7 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
       setStep('done');
       onCreated?.();
     } catch (err: any) {
-      setSaveError(err?.message ?? 'Помилка збереження');
+      setSaveError(err?.message ?? t('folderImport.saveError'));
     } finally {
       setSaving(false);
     }
@@ -160,60 +167,72 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
 
   const latestFile = files[0];
 
-  return (
-    <div className={styles.backdrop}>
-      <div className={`${styles.modal} ${notesStyles.wide}`}>
-        <div className={styles.header}>
-          <h2>Авто-імпорт з Google Drive папки</h2>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Закрити">×</button>
+  // Portal to <body> so the wizard gets its own full-screen overlay above the
+  // settings modal instead of being laid out inside its scroll container.
+  // React events still bubble through portals along the component tree, so
+  // stop them here — otherwise clicks/keys reach SessionSettingsModal (whose
+  // overlay click closes it and whose form handles Enter).
+  return createPortal(
+    <div
+      className={`${styles.overlay} ${wizardStyles.overlay}`}
+      onClick={e => e.stopPropagation()}
+      onKeyDown={e => e.stopPropagation()}
+    >
+      <div
+        className={`${styles.modal} ${wizardStyles.modal}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('folderImport.title')}
+      >
+        <div className={wizardStyles.header}>
+          <h2>{t('folderImport.title')}</h2>
+          <button type="button" className={wizardStyles.closeBtn} onClick={onClose} aria-label={t('folderImport.close')}>×</button>
         </div>
 
-        <div style={{ padding: '16px 24px 24px' }}>
+        <div className={wizardStyles.body}>
           <Stepper step={step} />
 
           {step === 'apiKey' && (
             <section>
-              <h3>Крок 1. Google Drive API Key</h3>
+              <h3>{t('folderImport.apiKeyStep.title')}</h3>
               <p className={notesStyles.editHint}>
-                Потрібен особистий ключ, який ти створюєш у Google Cloud Console (5 хвилин).
-                Він зберігається локально у Folio, прив'язаний до цієї сесії.
+                {t('folderImport.apiKeyStep.hint')}
               </p>
               <ol style={{ fontSize: 13, lineHeight: 1.7, color: '#a1a1aa', paddingLeft: 20 }}>
-                <li>Відкрий <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">console.cloud.google.com</a> → створи (або обери) проект</li>
-                <li>APIs & Services → Library → знайди <b>Google Drive API</b> → Enable</li>
-                <li>Credentials → Create credentials → <b>API key</b></li>
-                <li>(Опційно) Restrict key → API restrictions → Google Drive API only</li>
-                <li>Копіюй ключ і встав сюди ↓</li>
+                <li>{t('folderImport.apiKeyStep.openConsole')} <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">console.cloud.google.com</a> {t('folderImport.apiKeyStep.createProject')}</li>
+                <li>{t('folderImport.apiKeyStep.enableApiBefore')} <b>Google Drive API</b> {t('folderImport.apiKeyStep.enableApiAfter')}</li>
+                <li>{t('folderImport.apiKeyStep.createCredentials')} <b>API key</b></li>
+                <li>{t('folderImport.apiKeyStep.restrictKey')}</li>
+                <li>{t('folderImport.apiKeyStep.copyKey')}</li>
               </ol>
               <input
                 type="text"
-                placeholder="AIzaSy..."
+                placeholder={t('folderImport.apiKeyStep.placeholder')}
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
                 style={{ width: '100%', padding: 10, fontSize: 14, marginTop: 12, background: '#1a1a1f', border: '1px solid #2a2a30', borderRadius: 6, color: '#fff' }}
               />
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={onClose}>Скасувати</button>
+                <button type="button" className={styles.cancelBtn} onClick={onClose}>{t('folderImport.cancel')}</button>
                 <button
                   type="button"
                   className={styles.createBtn}
                   onClick={() => setStep('folder')}
                   disabled={!apiKey.trim()}
-                >Далі</button>
+                >{t('folderImport.next')}</button>
               </div>
             </section>
           )}
 
           {step === 'folder' && (
             <section>
-              <h3>Крок 2. Папка Google Drive</h3>
+              <h3>{t('folderImport.folderStep.title')}</h3>
               <p className={notesStyles.editHint}>
-                У Drive: правою кнопкою на потрібну папку → <b>Share</b> → "Anyone with the link" → <b>Viewer</b>.
-                Скопіюй URL і встав сюди.
+                {t('folderImport.folderStep.shareHintBefore')} <b>Share</b> {t('folderImport.folderStep.shareHintMiddle')} <b>Viewer</b>{t('folderImport.folderStep.shareHintAfter')}
               </p>
               <input
                 type="text"
-                placeholder="https://drive.google.com/drive/folders/1AbCdEf..."
+                placeholder={t('folderImport.folderStep.placeholder')}
                 value={folderUrl}
                 onChange={e => setFolderUrl(e.target.value)}
                 style={{ width: '100%', padding: 10, fontSize: 14, marginTop: 8, background: '#1a1a1f', border: '1px solid #2a2a30', borderRadius: 6, color: '#fff' }}
@@ -224,28 +243,28 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                 </div>
               )}
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setStep('apiKey')}>Назад</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setStep('apiKey')}>{t('folderImport.back')}</button>
                 <button
                   type="button"
                   className={styles.createBtn}
                   onClick={validateFolder}
                   disabled={!folderUrl.trim() || validating}
-                >{validating ? 'Перевіряю...' : 'Перевірити доступ →'}</button>
+                >{validating ? t('folderImport.folderStep.validating') : t('folderImport.folderStep.checkAccess')}</button>
               </div>
             </section>
           )}
 
           {step === 'account' && (
             <section>
-              <h3>Крок 3. Куди імпортувати у Finmap</h3>
+              <h3>{t('folderImport.accountStep.title')}</h3>
               <p className={notesStyles.editHint}>
-                Папка: <b>{folderName}</b> · {files.length} файлів (precheck)
+                {t('folderImport.accountStep.folderLabel')} <b>{folderName}</b> {t('folderImport.accountStep.filesCount', { n: files.length })}
               </p>
               {accountsLoading ? (
-                <div style={{ padding: 20, textAlign: 'center', color: '#888' }}>Завантажую рахунки...</div>
+                <div style={{ padding: 20, textAlign: 'center', color: '#888' }}>{t('folderImport.accountStep.loading')}</div>
               ) : accounts.length === 0 ? (
                 <div style={{ padding: 12, background: 'rgba(220,38,38,0.1)', borderRadius: 6, color: '#fca5a5', fontSize: 13 }}>
-                  Не вдалось отримати список рахунків з Finmap. Перевір API-ключ сесії.
+                  {t('folderImport.accountStep.loadError')}
                 </div>
               ) : (
                 <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #2a2a30', borderRadius: 6 }}>
@@ -268,7 +287,7 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                       <div style={{ flex: 1, fontSize: 14 }}>
                         <div style={{ fontWeight: 500 }}>{acc.label}</div>
                         {typeof acc.balance === 'number' && (
-                          <div style={{ fontSize: 12, color: '#888' }}>{acc.balance.toLocaleString('uk-UA')} {acc.currencyId ?? ''}</div>
+                          <div style={{ fontSize: 12, color: '#888' }}>{acc.balance.toLocaleString(locale)} {acc.currencyId ?? ''}</div>
                         )}
                       </div>
                     </label>
@@ -276,38 +295,37 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                 </div>
               )}
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setStep('folder')}>Назад</button>
-                <button type="button" className={styles.createBtn} onClick={() => setStep('context')} disabled={!accountId}>Далі</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setStep('folder')}>{t('folderImport.back')}</button>
+                <button type="button" className={styles.createBtn} onClick={() => setStep('context')} disabled={!accountId}>{t('folderImport.next')}</button>
               </div>
             </section>
           )}
 
           {step === 'context' && (
             <section>
-              <h3>Крок 4. Як обробляти файли</h3>
+              <h3>{t('folderImport.contextStep.title')}</h3>
               <p className={notesStyles.editHint}>
-                Вільним текстом опиши: яка категорія за замовчуванням, як визначати контрагента, тип операції тощо.
-                Claude інтерпретує це при кожному новому файлі. Можна редагувати потім.
+                {t('folderImport.contextStep.hint')}
               </p>
               <textarea
                 rows={8}
                 value={contextPrompt}
                 onChange={e => setContextPrompt(e.target.value)}
-                placeholder={'Приклад:\n\nКатегорія: "Продаж послуг"\nКонтрагент: брати з назви файла після першого пробілу\nТип: дохід\n\nЯкщо файл .pdf — це банківська виписка, парсити як reconcile.\nЯкщо файл .xlsx — таблиця з продажами, кожен рядок = окрема операція.'}
+                placeholder={t('folderImport.contextStep.placeholder')}
                 style={{ width: '100%', padding: 10, fontSize: 13, marginTop: 8, background: '#1a1a1f', border: '1px solid #2a2a30', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}
               />
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setStep('account')}>Назад</button>
-                <button type="button" className={styles.createBtn} onClick={() => setStep('interval')} disabled={!contextPrompt.trim()}>Далі</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setStep('account')}>{t('folderImport.back')}</button>
+                <button type="button" className={styles.createBtn} onClick={() => setStep('interval')} disabled={!contextPrompt.trim()}>{t('folderImport.next')}</button>
               </div>
             </section>
           )}
 
           {step === 'interval' && (
             <section>
-              <h3>Крок 5. Як часто перевіряти папку</h3>
+              <h3>{t('folderImport.intervalStep.title')}</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-                {INTERVAL_OPTIONS.map(opt => (
+                {intervalOptions.map(opt => (
                   <label
                     key={opt.value}
                     style={{
@@ -328,25 +346,24 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                 ))}
               </div>
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setStep('context')}>Назад</button>
-                <button type="button" className={styles.createBtn} onClick={() => setStep('firstFile')}>Далі</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setStep('context')}>{t('folderImport.back')}</button>
+                <button type="button" className={styles.createBtn} onClick={() => setStep('firstFile')}>{t('folderImport.next')}</button>
               </div>
             </section>
           )}
 
           {step === 'firstFile' && (
             <section>
-              <h3>Крок 6. Останній файл у папці</h3>
+              <h3>{t('folderImport.firstFileStep.title')}</h3>
               {latestFile ? (
                 <>
                   <p className={notesStyles.editHint}>
-                    Усі попередні файли в папці будуть пропущені (вважаються вже обробленими).
-                    Що з найновішим?
+                    {t('folderImport.firstFileStep.hint')}
                   </p>
                   <div style={{ padding: 12, background: '#1a1a1f', border: '1px solid #2a2a30', borderRadius: 6, marginTop: 8 }}>
                     <div style={{ fontWeight: 500 }}>📄 {latestFile.name}</div>
                     <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-                      {latestFile.modifiedTime && new Date(latestFile.modifiedTime).toLocaleString('uk-UA')}
+                      {latestFile.modifiedTime && new Date(latestFile.modifiedTime).toLocaleString(locale)}
                       {typeof latestFile.size === 'number' && ` · ${formatSize(latestFile.size)}`}
                     </div>
                   </div>
@@ -360,8 +377,8 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                     >
                       <input type="radio" checked={!importLatest} onChange={() => setImportLatest(false)} style={{ marginRight: 10, marginTop: 3 }} />
                       <div>
-                        <div style={{ fontWeight: 500 }}>Пропустити</div>
-                        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Чекаємо ТІЛЬКИ майбутні файли</div>
+                        <div style={{ fontWeight: 500 }}>{t('folderImport.firstFileStep.skip')}</div>
+                        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{t('folderImport.firstFileStep.skipHint')}</div>
                       </div>
                     </label>
                     <label
@@ -373,14 +390,14 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                     >
                       <input type="radio" checked={importLatest} onChange={() => setImportLatest(true)} style={{ marginRight: 10, marginTop: 3 }} />
                       <div>
-                        <div style={{ fontWeight: 500 }}>Імпортувати цей</div>
-                        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Перший автозапуск обробить його</div>
+                        <div style={{ fontWeight: 500 }}>{t('folderImport.firstFileStep.importThis')}</div>
+                        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{t('folderImport.firstFileStep.importHint')}</div>
                       </div>
                     </label>
                   </div>
                 </>
               ) : (
-                <p className={notesStyles.editHint}>Папка порожня — нема що пропускати. Запис створиться з порожнім baseline.</p>
+                <p className={notesStyles.editHint}>{t('folderImport.firstFileStep.emptyFolder')}</p>
               )}
               {saveError && (
                 <div style={{ marginTop: 12, padding: 10, background: 'rgba(220, 38, 38, 0.1)', borderRadius: 6, color: '#fca5a5', fontSize: 13 }}>
@@ -388,8 +405,8 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
                 </div>
               )}
               <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setStep('interval')}>Назад</button>
-                <button type="button" className={styles.createBtn} onClick={finish} disabled={saving}>{saving ? 'Зберігаю...' : 'Створити авто-імпорт'}</button>
+                <button type="button" className={styles.cancelBtn} onClick={() => setStep('interval')}>{t('folderImport.back')}</button>
+                <button type="button" className={styles.createBtn} onClick={finish} disabled={saving}>{saving ? t('folderImport.firstFileStep.saving') : t('folderImport.firstFileStep.create')}</button>
               </div>
             </section>
           )}
@@ -397,17 +414,17 @@ export function FolderImportWizard({ session, onClose, onCreated }: Props) {
           {step === 'done' && (
             <section style={{ textAlign: 'center', padding: '20px 0' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-              <h3>Готово</h3>
+              <h3>{t('folderImport.doneStep.title')}</h3>
               <p style={{ color: '#a1a1aa', fontSize: 14, maxWidth: 400, margin: '12px auto' }}>
-                Папка <b>{folderName}</b> підʼєднана до рахунку <b>{accountName}</b>.
-                Перевірка кожні {INTERVAL_OPTIONS.find(o => o.value === intervalMin)?.label}. Усе налаштування — у Settings.
+                {t('folderImport.doneStep.folderConnectedBefore')} <b>{folderName}</b> {t('folderImport.doneStep.folderConnectedMiddle')} <b>{accountName}</b>{t('folderImport.doneStep.summary', { interval: intervalOptions.find(o => o.value === intervalMin)?.label ?? '' })}
               </p>
-              <button type="button" className={styles.createBtn} onClick={onClose} style={{ marginTop: 12 }}>Закрити</button>
+              <button type="button" className={styles.createBtn} onClick={onClose} style={{ marginTop: 12 }}>{t('folderImport.close')}</button>
             </section>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

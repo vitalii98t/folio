@@ -30,11 +30,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # GROQ_API_KEY is baked into the main-process bundle by build-main.mjs
+      # (voice input). Add it under Settings → Secrets and variables → Actions;
+      # without it the build still succeeds, voice just shows as unavailable.
       - name: Build app bundle
         run: npm run build
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
       - name: Regenerate icons
         run: npm run icons
+
+      # uv/uvx and Node.js that ship inside the app (resources/binaries is
+      # git-ignored). Without this step electron-builder finds nothing to copy
+      # and the installer goes out without the bundled MCP runtimes.
+      - name: Fetch bundled runtimes (uv, Node.js)
+        run: npm run fetch-binaries
 
       # Package per platform — never publish here; the dedicated `release` job
       # below uploads everything once builds are done.

@@ -1,3 +1,4 @@
+import { useT, type I18n } from '../i18n';
 import styles from '../styles/ConfirmationBar.module.css';
 
 interface Props {
@@ -9,103 +10,49 @@ interface Props {
   onReject: () => void;
 }
 
-/** Human-readable labels for all mutation tools */
-const ACTION_LABELS: Record<string, string> = {
-  // Operations
-  create_operation: 'Створити операцію',
-  patch_operation: 'Змінити операцію',
-  delete_operation: 'Видалити операцію',
-  // Categories
-  create_category: 'Створити категорію',
-  update_category: 'Змінити категорію',
-  delete_category: 'Видалити категорію',
-  // Tags
-  create_tag: 'Створити тег',
-  update_tag: 'Змінити тег',
-  delete_tag: 'Видалити тег',
-  // Projects
-  create_project: 'Створити проект',
-  update_project: 'Змінити проект',
-  delete_project: 'Видалити проект',
-  // Counterparties
-  create_counterparty: 'Створити контрагента',
-  update_counterparty: 'Змінити контрагента',
-  delete_counterparty: 'Видалити контрагента',
-  // Invoices
-  create_invoice: 'Створити інвойс',
-  update_invoice: 'Змінити інвойс',
-  delete_invoice: 'Видалити інвойс',
-  create_invoice_good: 'Створити товар/послугу',
-  update_invoice_good: 'Змінити товар/послугу',
-  delete_invoice_good: 'Видалити товар/послугу',
-  create_invoice_company: 'Створити компанію для інвойсів',
-  update_invoice_company: 'Змінити компанію для інвойсів',
-  delete_invoice_company: 'Видалити компанію для інвойсів',
-  // Exchange rates
-  upsert_exchange_rate: 'Зберегти курс валют',
-  delete_exchange_rate: 'Видалити курс валют',
-  // Webhooks
-  create_webhook: 'Створити вебхук',
-  update_webhook: 'Змінити вебхук',
-  delete_webhook: 'Видалити вебхук',
-  // Integrations
-  save_integration: 'Зберегти інтеграцію',
-  delete_integration: 'Видалити інтеграцію',
-  toggle_integration: 'Перемкнути інтеграцію',
-  // HTTP
-  http_request: 'Зовнішній запит',
-};
+/** Just the lookup half of the i18n context — what the formatting helpers need */
+type Lookup = Pick<I18n, 't' | 'has'>;
 
 /** Extract bare tool name from MCP prefixed name: mcp__finmap__create_operation → create_operation */
 function stripPrefix(toolName: string): string {
-  const match = toolName.match(/^mcp__[^_]+__(.+)$/);
+  const match = toolName.match(/^mcp__.+?__(.+)$/);
   return match ? match[1] : toolName;
 }
 
-/** Human-readable type name */
-function typeLabel(type: unknown): string {
-  switch (String(type)) {
-    case 'income': return 'Дохід';
-    case 'expense': return 'Витрата';
-    case 'transfer': return 'Переказ';
-    case 'suppliers': return 'Постачальник';
-    case 'creditors': return 'Кредитор';
-    case 'debitors': return 'Дебітор';
-    case 'investors': return 'Інвестор';
-    case 'employees': return 'Співробітник';
-    case 'owners': return 'Власник';
-    case 'tax-organisations': return 'Податковий орган';
-    default: return String(type);
-  }
+/** Human-readable type name (confirm.type.*); unknown types fall back to the raw value */
+function typeLabel({ t, has }: Lookup, type: unknown): string {
+  const name = String(type);
+  return has(`confirm.type.${name}`) ? t(`confirm.type.${name}`) : name;
 }
 
-function formatDetails(toolName: string, input: Record<string, unknown>): string {
+function formatDetails(i18n: Lookup, toolName: string, input: Record<string, unknown>): string {
+  const { t } = i18n;
   const parts: string[] = [];
   const bare = stripPrefix(toolName);
 
   // For operations — show type + amount + comment
   if (bare.includes('operation')) {
-    if (input.type !== undefined) parts.push(typeLabel(input.type));
-    if (input.amount !== undefined) parts.push(`${input.amount} ₴`);
+    if (input.type !== undefined) parts.push(typeLabel(i18n, input.type));
+    if (input.amount !== undefined) parts.push(t('confirm.details.amount', { amount: String(input.amount) }));
     if (input.comment) parts.push(`«${String(input.comment)}»`);
-    if (input.id && bare !== 'create_operation') parts.push(`ID: ${String(input.id).slice(-6)}`);
+    if (input.id && bare !== 'create_operation') parts.push(t('confirm.details.id', { id: String(input.id).slice(-6) }));
   }
   // For categories/tags/projects/counterparties — show label and type
   else if (bare.includes('category') || bare.includes('tag') || bare.includes('project') || bare.includes('counterparty')) {
-    if (input.type !== undefined) parts.push(typeLabel(input.type));
+    if (input.type !== undefined) parts.push(typeLabel(i18n, input.type));
     if (input.label) parts.push(`«${String(input.label)}»`);
-    if (input.id && !bare.startsWith('create_')) parts.push(`ID: ${String(input.id).slice(-6)}`);
+    if (input.id && !bare.startsWith('create_')) parts.push(t('confirm.details.id', { id: String(input.id).slice(-6) }));
   }
   // For invoices
   else if (bare.includes('invoice')) {
-    if (input.invoiceNumber) parts.push(`№ ${String(input.invoiceNumber)}`);
+    if (input.invoiceNumber) parts.push(t('confirm.details.invoiceNumber', { n: String(input.invoiceNumber) }));
     if (input.label) parts.push(`«${String(input.label)}»`);
-    if (input.id && !bare.startsWith('create_')) parts.push(`ID: ${String(input.id).slice(-6)}`);
+    if (input.id && !bare.startsWith('create_')) parts.push(t('confirm.details.id', { id: String(input.id).slice(-6) }));
   }
   // For exchange rates
   else if (bare.includes('exchange_rate')) {
     if (input.from && input.to) parts.push(`${input.from} → ${input.to}`);
-    if (input.rate) parts.push(`курс ${input.rate}`);
+    if (input.rate) parts.push(t('confirm.details.rate', { rate: String(input.rate) }));
   }
   // For webhooks
   else if (bare.includes('webhook')) {
@@ -126,9 +73,11 @@ function formatDetails(toolName: string, input: Record<string, unknown>): string
 }
 
 export function ConfirmationBar({ toolName, input, queueCount = 0, onConfirm, onReject }: Props) {
+  const { t, has } = useT();
   const bare = stripPrefix(toolName);
-  const label = ACTION_LABELS[bare] ?? bare.replace(/_/g, ' ');
-  const details = formatDetails(toolName, input);
+  // Human-readable labels for all mutation tools live in confirm.tool.*; unknown tools show the raw name
+  const label = has(`confirm.tool.${bare}`) ? t(`confirm.tool.${bare}`) : bare.replace(/_/g, ' ');
+  const details = formatDetails({ t, has }, toolName, input);
   const isDelete = bare.includes('delete');
 
   return (
@@ -137,17 +86,17 @@ export function ConfirmationBar({ toolName, input, queueCount = 0, onConfirm, on
         <span className={styles.label}>{label}</span>
         {details && <span className={styles.details}>{details}</span>}
         {queueCount > 0 && (
-          <span className={styles.details} title="Дії підтверджуються по черзі">
-            +{queueCount} у черзі
+          <span className={styles.details} title={t('confirm.queuedTitle')}>
+            {t('confirm.queued', { n: queueCount })}
           </span>
         )}
       </div>
       <div className={styles.actions}>
         <button className={styles.confirmBtn} onClick={onConfirm}>
-          Підтвердити
+          {t('confirm.confirmBtn')}
         </button>
         <button className={styles.rejectBtn} onClick={onReject}>
-          Скасувати
+          {t('confirm.rejectBtn')}
         </button>
       </div>
     </div>

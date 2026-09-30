@@ -1,64 +1,74 @@
 import { useState } from 'react';
+import { useT } from '../i18n';
 import styles from '../styles/NewSessionModal.module.css';
 
 interface Props {
   onClose: () => void;
   /** apiKey is empty string when user chose "MCP-only" mode — session is created
    *  without Finmap connection, can be linked later via SessionSettingsModal. */
-  onCreate: (name: string, apiKey: string) => void;
+  onCreate: (name: string, apiKey: string) => Promise<void>;
 }
 
 export function NewSessionModal({ onClose, onCreate }: Props) {
+  const { t } = useT();
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
+  // Guards against a double Enter / double click creating two companies
+  // while the first create is still in flight.
+  const [creating, setCreating] = useState(false);
 
-  const canCreateFull = name.trim().length > 0 && apiKey.trim().length > 0;
-  const canCreateMcpOnly = name.trim().length > 0;
+  const canCreateFull = !creating && name.trim().length > 0 && apiKey.trim().length > 0;
+  const canCreateMcpOnly = !creating && name.trim().length > 0;
+
+  async function create(apiKeyValue: string) {
+    setCreating(true);
+    try {
+      await onCreate(name.trim(), apiKeyValue);
+    } finally {
+      // The modal usually unmounts on success; this only matters on failure.
+      setCreating(false);
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (canCreateFull) {
-      onCreate(name.trim(), apiKey.trim());
+      void create(apiKey.trim());
     }
   }
 
   function handleSkipApiKey() {
     if (!canCreateMcpOnly) return;
-    if (!confirm(
-      'Створити сесію без Finmap API-ключа?\n\n' +
-      'У цьому режимі будуть доступні MCP-сервери (Jira, GSheets, Notion, GitHub тощо), ' +
-      'але Finmap-інструменти (операції, категорії, інвойси) не працюватимуть. ' +
-      'Ключ можна додати пізніше у налаштуваннях сесії.'
-    )) return;
-    onCreate(name.trim(), '');
+    if (!confirm(t('newSession.confirmMcpOnly'))) return;
+    void create('');
   }
 
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
-        <h2>Додати компанію</h2>
+        <h2>{t('newSession.title')}</h2>
         <form onSubmit={handleSubmit}>
           <label className={styles.field}>
-            <span>Назва компанії</span>
+            <span>{t('newSession.nameLabel')}</span>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="Моя компанія"
+              placeholder={t('newSession.namePlaceholder')}
               autoFocus
             />
           </label>
 
           <label className={styles.field}>
-            <span>Finmap API ключ</span>
+            <span>{t('newSession.apiKeyLabel')}</span>
             <input
               type="password"
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              placeholder="Вставте API ключ з Finmap"
+              placeholder={t('newSession.apiKeyPlaceholder')}
             />
             <small className={styles.hint}>
-              Знайти можна в Finmap &rarr; Налаштування &rarr; API.{' '}
+              {t('newSession.apiKeyHint')}{' '}
               <button
                 type="button"
                 onClick={handleSkipApiKey}
@@ -73,17 +83,17 @@ export function NewSessionModal({ onClose, onCreate }: Props) {
                   font: 'inherit',
                 }}
               >
-                Пропустити — створити сесію тільки для MCP
+                {t('newSession.skipApiKey')}
               </button>
             </small>
           </label>
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose}>
-              Скасувати
+              {t('newSession.cancel')}
             </button>
             <button type="submit" className={styles.createBtn} disabled={!canCreateFull}>
-              Додати
+              {t('newSession.create')}
             </button>
           </div>
         </form>

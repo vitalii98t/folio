@@ -26,6 +26,10 @@ export class SyncScheduler {
   private syncing = new Set<string>(); // integration IDs currently syncing
   private runningTasks = new Set<string>(); // task IDs currently running
   private runningBindings = new Set<string>(); // file-import binding IDs currently running
+  /** Abort handle per running job (integration / task / binding id). Each
+   *  background run owns its controller, so cancelling one never touches the
+   *  user's chat or another job on the same session. */
+  private controllers = new Map<string, AbortController>();
 
   constructor(
     private sessionStore: SessionStore,
@@ -39,20 +43,26 @@ export class SyncScheduler {
     private onTaskProgress?: (task: ScheduledTask, toolName: string, kind?: RunKind) => void,
   ) {}
 
-  /** Run fn with a watchdog that aborts the session's Claude run after
-   *  RUN_TIMEOUT_MS. Returns true if the watchdog fired. */
-  private async withRunTimeout(sessionId: string, fn: () => Promise<void>): Promise<boolean> {
+  /** Run one background Claude job under its own AbortController with a
+   *  RUN_TIMEOUT_MS watchdog. Resolves to the final text, or "Error: …". */
+  private async runBackground(jobId: string, session: ChatSession, prompt: string, onTool?: (toolName: string) => void, timeoutText?: string): Promise<string> {
+    const ac = new AbortController();
+    this.controllers.set(jobId, ac);
     let timedOut = false;
-    const watchdog = setTimeout(() => {
-      timedOut = true;
-      this.agentManager.cancel(sessionId);
-    }, RUN_TIMEOUT_MS);
+    const watchdog = setTimeout(() => { timedOut = true; ac.abort(); }, RUN_TIMEOUT_MS);
+    let result = '';
     try {
-      await fn();
+      await this.agentManager.sendMessage(session, prompt, {
+        onToolCall: onTool ? (toolName) => onTool(toolName) : undefined,
+        onDone: (fullText) => { result = fullText; },
+        onError: (error) => { result = `Error: ${error}`; },
+      }, { background: true, abortController: ac });
     } finally {
       clearTimeout(watchdog);
+      this.controllers.delete(jobId);
     }
-    return timedOut;
+    if (timedOut) return `Error: ${timeoutText ?? 'timeout'}`;
+    return result || 'Error: Claude returned no result.';
   }
 
   start() {
@@ -68,6 +78,7 @@ export class SyncScheduler {
       clearInterval(this.timer);
       this.timer = null;
     }
+    for (const ac of this.controllers.values()) ac.abort();
   }
 
   /** Run a task immediately by id. Used when a task is freshly created, or
@@ -96,14 +107,14 @@ export class SyncScheduler {
   cancelTask(taskId: string) {
     const task = this.sessionStore.getAllTasks().find(t => t.id === taskId);
     if (!task || !this.runningTasks.has(task.id)) return;
-    this.agentManager.cancel(task.sessionId);
+    this.controllers.get(task.id)?.abort();
   }
 
   /** Cancel a currently running file-import binding. */
   cancelBinding(bindingId: string) {
     const binding = this.sessionStore.getAllFileBindings().find(b => b.id === bindingId);
     if (!binding || !this.runningBindings.has(binding.id)) return;
-    this.agentManager.cancel(binding.sessionId);
+    this.controllers.get(binding.id)?.abort();
   }
 
   private async tick() {
@@ -154,21 +165,8 @@ export class SyncScheduler {
       || `Виконай автоматичну синхронізацію з ${integration.serviceName}. Завантаж нові транзакції та створи операції в Finmap на рахунку "${integration.finmapAccountName || integration.finmapAccountId}". Використовуй externalId для дедуплікації. Не питай підтвердження — це автоматичний синк.`;
 
     try {
-      let result = '';
-
-      const timedOut = await this.withRunTimeout(session.id, () =>
-        this.agentManager.sendMessage(
-          session,
-          syncPrompt,
-          () => {}, // onChunk — silent
-          () => {}, // onToolCall — silent
-          (fullText) => { result = fullText; },
-          (error) => { result = `Error: ${error}`; },
-          undefined, // onToolPermission — silent
-          true,      // forceAutoApprove — integrations must not block
-        )
-      );
-      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — синхронізацію перервано.`;
+      const result = await this.runBackground(integration.id, session, syncPrompt, undefined,
+        `Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — синхронізацію перервано.`);
 
       const hasError = /^Error:/.test(result);
       this.sessionStore.updateIntegration(integration.id, {
@@ -201,20 +199,9 @@ export class SyncScheduler {
     const prompt = `[Автозадача "${task.name}" — запущена за розкладом, не питай підтвердження для рутинних дій]\n\n${task.prompt}`;
 
     try {
-      let result = '';
-      const timedOut = await this.withRunTimeout(session.id, () =>
-        this.agentManager.sendMessage(
-          session,
-          prompt,
-          () => {}, // onChunk — ignored for silent runs
-          (toolName) => this.onTaskProgress?.(task, toolName, 'task'),
-          (fullText) => { result = fullText; },
-          (error) => { result = `Error: ${error}`; },
-          undefined, // onToolPermission — tasks never prompt
-          true,      // forceAutoApprove — scheduled runs must not block on confirmation
-        )
-      );
-      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — задачу перервано.`;
+      const result = await this.runBackground(task.id, session, prompt,
+        (toolName) => this.onTaskProgress?.(task, toolName, 'task'),
+        `Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — задачу перервано.`);
 
       const trimmed = truncate(result);
       const hasError = /^Error:/.test(result);
@@ -292,20 +279,9 @@ export class SyncScheduler {
       `Не питай підтверджень — це автоматичний запуск без UI.`;
 
     try {
-      let result = '';
-      const timedOut = await this.withRunTimeout(session.id, () =>
-        this.agentManager.sendMessage(
-          session,
-          prompt,
-          () => {},
-          (toolName) => this.onTaskProgress?.(asTaskShim, toolName, 'binding'),
-          (fullText) => { result = fullText; },
-          (error) => { result = `Error: ${error}`; },
-          undefined,
-          true, // forceAutoApprove — background run
-        )
-      );
-      if (timedOut) result = `Error: Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — імпорт перервано.`;
+      const result = await this.runBackground(binding.id, session, prompt,
+        (toolName) => this.onTaskProgress?.(asTaskShim, toolName, 'binding'),
+        `Перевищено ліміт часу (${RUN_TIMEOUT_MS / 60_000} хв) — імпорт перервано.`);
 
       const trimmed = truncate(result);
       const hasError = /^Error:/.test(result);

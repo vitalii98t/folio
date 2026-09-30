@@ -10,11 +10,38 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 /**
  * Parse a file into text content suitable for LLM consumption.
  * Returns null for images (handled separately).
+ *
+ * Never throws: a missing/unreadable attachment (deleted after it was picked,
+ * a OneDrive placeholder that can't hydrate, a lock) yields a readable
+ * "[File: name] (could not read: reason)" line so the message still goes out.
  */
 export async function parseFileToText(filePath: string): Promise<string | null> {
+  const name = path.basename(String(filePath ?? '')) || String(filePath);
+  try {
+    return await parseFileToTextUnsafe(filePath);
+  } catch (err: any) {
+    return `[File: ${name}] (could not read: ${describeFsError(err)})`;
+  }
+}
+
+function describeFsError(err: any): string {
+  switch (err?.code) {
+    case 'ENOENT': return 'file not found — it may have been moved or deleted';
+    case 'EACCES':
+    case 'EPERM': return 'permission denied';
+    case 'EBUSY': return 'file is locked by another program';
+    case 'EISDIR': return 'this is a folder, not a file';
+    default: return err?.message ?? String(err);
+  }
+}
+
+async function parseFileToTextUnsafe(filePath: string): Promise<string | null> {
   const ext = path.extname(filePath).toLowerCase();
   const name = path.basename(filePath);
   const stat = fs.statSync(filePath);
+  if (stat.isDirectory()) {
+    return `[File: ${name}] (could not read: ${describeFsError({ code: 'EISDIR' })})`;
+  }
 
   if (stat.size > MAX_FILE_SIZE) {
     return `[File: ${name}] (skipped — too large: ${(stat.size / 1024 / 1024).toFixed(1)} MB)`;

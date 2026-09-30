@@ -228,6 +228,32 @@
   color: #fca5a5;
 }
 
+.footerBtns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settingsBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.settingsBtn:hover {
+  background: var(--accent-soft);
+  border-color: rgba(109, 213, 237, 0.3);
+  color: var(--accent-hover);
+}
+
 .footerMeta {
   display: flex;
   flex-direction: column;

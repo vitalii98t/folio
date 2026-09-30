@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { McpServerConfig } from '../../shared/types';
 import notesStyles from '../styles/SessionSettingsModal.module.css';
+import { useT } from '../i18n';
 
 const api = (window as any).finmapAgent;
 
@@ -14,6 +15,13 @@ interface FormState {
   args: string;          // newline-separated
   envText: string;       // "KEY=value" per line
   autoApproveAll: boolean;
+}
+
+/** Built-in Finmap MCP server — user servers must not shadow it. */
+const RESERVED_SERVER_NAME = 'finmap';
+
+function sanitizeServerName(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
 }
 
 const emptyForm: FormState = {
@@ -43,11 +51,12 @@ const emptyTaskForm: TaskFormState = {
 };
 
 export function McpServersSection({ sessionId }: Props) {
+  const { t } = useT();
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
-  // Separate state for the inline "+ Автозадача" form attached to each server.
+  // Separate state for the inline "+ Auto-task" form attached to each server.
   // Holds the server-id whose form is open; null = no form open.
   const [creatingTaskFor, setCreatingTaskFor] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState<TaskFormState>(emptyTaskForm);
@@ -100,8 +109,8 @@ export function McpServersSection({ sessionId }: Props) {
   }
 
   async function save() {
-    const name = form.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    if (!name || !form.command.trim()) return;
+    if (!canSave) return;
+    const name = sanitizedName;
     const args = form.args.split('\n').map(s => s.trim()).filter(Boolean);
     const env = parseEnv(form.envText);
 
@@ -134,7 +143,7 @@ export function McpServersSection({ sessionId }: Props) {
   }
 
   async function remove(s: McpServerConfig) {
-    if (!confirm(`Видалити MCP-сервер "${s.name}"?`)) return;
+    if (!confirm(t('mcpServers.confirmDelete', { name: s.name }))) return;
     await api.deleteMcpServer(s.id);
     if (editingId === s.id) resetForm();
     load();
@@ -146,7 +155,7 @@ export function McpServersSection({ sessionId }: Props) {
     setTaskForm({
       ...emptyTaskForm,
       // Sensible defaults — Claude can edit but UX is faster with a name hinted.
-      name: `Автозадача через ${s.name}`,
+      name: t('mcpServers.taskDefaultName', { name: s.name }),
     });
   }
 
@@ -160,7 +169,7 @@ export function McpServersSection({ sessionId }: Props) {
     // Scaffold the prompt so Claude knows which MCP tools are in play.
     // The user's text stays raw — we just prepend a one-liner with context.
     const fullPrompt =
-      `[Автозадача через MCP-сервер "${s.name}". Використовуй інструменти mcp__${s.name}__* для роботи з цим сервісом.]\n\n` +
+      t('mcpServers.taskPromptPrefix', { name: s.name }) + '\n\n' +
       taskForm.prompt.trim();
     await api.createTask({
       sessionId,
@@ -176,18 +185,35 @@ export function McpServersSection({ sessionId }: Props) {
     setTimeout(() => setTaskCreated(null), 5000);
   }
 
-  const canSave = form.name.trim().length > 0 && form.command.trim().length > 0;
+  // The name becomes the MCP namespace (mcp__<name>__*), so it is stripped to
+  // [a-z0-9_-]. Validate the *sanitized* value: a name typed only in Cyrillic
+  // would otherwise pass a raw check and then silently save nothing, and
+  // `finmap` / duplicates would override the built-in server or each other.
+  const sanitizedName = sanitizeServerName(form.name);
+  const nameError: string | null = form.name.trim().length === 0
+    ? null // nothing typed yet — no need to shout
+    : !sanitizedName
+      ? t('mcpServers.nameErrorInvalid')
+      : sanitizedName === RESERVED_SERVER_NAME
+        ? t('mcpServers.nameErrorReserved', { name: sanitizedName })
+        : servers.some(s => s.id !== editingId && s.name === sanitizedName)
+          ? t('mcpServers.nameErrorDuplicate', { name: sanitizedName })
+          : null;
+  const canSave = sanitizedName.length > 0 && !nameError && form.command.trim().length > 0;
+  const nameErrorEl = nameError && (
+    <small style={{ color: '#fca5a5', fontSize: 12 }}>{nameError}</small>
+  );
 
   return (
     <section className={notesStyles.section}>
       <div className={notesStyles.sectionHead}>
-        <span>MCP-сервери</span>
+        <span>{t('mcpServers.title')}</span>
         <span className={notesStyles.sectionCount}>{servers.length}</span>
         <button
           type="button"
           className={notesStyles.addBtn}
           onClick={toggleAddForm}
-          title={showAdd ? 'Скасувати' : 'Новий MCP-сервер'}
+          title={showAdd ? t('mcpServers.cancel') : t('mcpServers.newServer')}
         >
           {showAdd ? '−' : '+'}
         </button>
@@ -197,25 +223,26 @@ export function McpServersSection({ sessionId }: Props) {
         <div className={notesStyles.addForm}>
           <input
             type="text"
-            placeholder="Назва (namespace): slack, notion, telegram..."
+            placeholder={t('mcpServers.namePlaceholder')}
             value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })}
           />
+          {nameErrorEl}
           <input
             type="text"
-            placeholder="Команда: npx / uvx / абсолютний шлях"
+            placeholder={t('mcpServers.commandPlaceholder')}
             value={form.command}
             onChange={e => setForm({ ...form, command: e.target.value })}
           />
           <textarea
             rows={2}
-            placeholder={'Аргументи (по одному на рядок):\n-y\n@modelcontextprotocol/server-slack'}
+            placeholder={t('mcpServers.argsPlaceholder')}
             value={form.args}
             onChange={e => setForm({ ...form, args: e.target.value })}
           />
           <textarea
             rows={3}
-            placeholder={'Env: KEY=value (по одній на рядок):\nSLACK_BOT_TOKEN=xoxb-...\nSLACK_TEAM_ID=T123...'}
+            placeholder={t('mcpServers.envPlaceholder')}
             value={form.envText}
             onChange={e => setForm({ ...form, envText: e.target.value })}
           />
@@ -226,7 +253,7 @@ export function McpServersSection({ sessionId }: Props) {
               onChange={e => setForm({ ...form, autoApproveAll: e.target.checked })}
               style={{ width: 'auto' }}
             />
-            <span>Авто-схвалювати всі інструменти</span>
+            <span>{t('mcpServers.autoApproveAll')}</span>
           </label>
           <button
             type="button"
@@ -234,14 +261,14 @@ export function McpServersSection({ sessionId }: Props) {
             onClick={save}
             disabled={!canSave}
           >
-            Додати
+            {t('mcpServers.add')}
           </button>
         </div>
       )}
 
       {servers.length === 0 && !showAdd ? (
         <div className={notesStyles.empty}>
-          Немає підключених MCP-серверів. Натисни <b>+</b> або скажи в чаті <b>"хочу підключити &lt;сервіс&gt;"</b>.
+          {t('mcpServers.emptyIntro')} <b>+</b> {t('mcpServers.emptyOrSay')} <b>{t('mcpServers.emptyChatHint')}</b>.
         </div>
       ) : (
         <div className={notesStyles.list}>
@@ -272,7 +299,7 @@ export function McpServersSection({ sessionId }: Props) {
                     type="button"
                     className={`${notesStyles.toggle} ${s.enabled ? notesStyles.toggleOn : ''}`}
                     onClick={() => toggleServer(s.id)}
-                    title={s.enabled ? 'Вимкнути' : 'Увімкнути'}
+                    title={s.enabled ? t('mcpServers.disable') : t('mcpServers.enable')}
                   >
                     <span className={notesStyles.toggleKnob} />
                   </button>
@@ -280,8 +307,8 @@ export function McpServersSection({ sessionId }: Props) {
                     type="button"
                     className={notesStyles.editBtn}
                     onClick={() => creatingTaskFor === s.id ? cancelCreateTask() : startCreateTask(s)}
-                    title={creatingTaskFor === s.id ? 'Згорнути' : 'Створити автозадачу для цього MCP'}
-                    aria-label="Створити автозадачу"
+                    title={creatingTaskFor === s.id ? t('mcpServers.collapse') : t('mcpServers.createTaskForServer')}
+                    aria-label={t('mcpServers.createTask')}
                     disabled={!s.enabled}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -293,8 +320,8 @@ export function McpServersSection({ sessionId }: Props) {
                     type="button"
                     className={notesStyles.editBtn}
                     onClick={() => editingId === s.id ? resetForm() : startEdit(s)}
-                    title={editingId === s.id ? 'Згорнути' : 'Редагувати'}
-                    aria-label="Редагувати"
+                    title={editingId === s.id ? t('mcpServers.collapse') : t('mcpServers.edit')}
+                    aria-label={t('mcpServers.edit')}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -304,8 +331,8 @@ export function McpServersSection({ sessionId }: Props) {
                     type="button"
                     className={notesStyles.deleteBtn}
                     onClick={() => remove(s)}
-                    title="Видалити"
-                    aria-label="Видалити"
+                    title={t('mcpServers.delete')}
+                    aria-label={t('mcpServers.delete')}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 6h18" />
@@ -319,7 +346,7 @@ export function McpServersSection({ sessionId }: Props) {
               {taskCreated === s.id && (
                 <div className={notesStyles.editForm} style={{ background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)' }}>
                   <span style={{ color: '#86efac', fontSize: 13 }}>
-                    ✅ Автозадача створена. Знайдеш її у секції <b>Автозадачі</b> вище — там же можна редагувати, запустити вручну, вимкнути.
+                    {t('mcpServers.taskCreatedBefore')} <b>{t('mcpServers.taskCreatedSection')}</b> {t('mcpServers.taskCreatedAfter')}
                   </span>
                 </div>
               )}
@@ -327,37 +354,37 @@ export function McpServersSection({ sessionId }: Props) {
               {creatingTaskFor === s.id && (
                 <div className={notesStyles.editForm}>
                   <label className={notesStyles.editLabel}>
-                    <span>Назва задачі</span>
+                    <span>{t('mcpServers.taskName')}</span>
                     <input
                       type="text"
                       value={taskForm.name}
                       onChange={e => setTaskForm({ ...taskForm, name: e.target.value })}
-                      placeholder={`Автозадача через ${s.name}`}
+                      placeholder={t('mcpServers.taskDefaultName', { name: s.name })}
                     />
                   </label>
                   <label className={notesStyles.editLabel}>
-                    <span>Що має робити задача</span>
+                    <span>{t('mcpServers.taskPrompt')}</span>
                     <textarea
                       rows={5}
                       value={taskForm.prompt}
                       onChange={e => setTaskForm({ ...taskForm, prompt: e.target.value })}
-                      placeholder={`Опиши що Claude має робити, використовуючи інструменти ${s.name}.\n\nПриклад для gsheets:\nЩодня тягни суми по категоріях за поточний місяць з Finmap і записуй у таблицю https://docs.google.com/spreadsheets/d/abc.../ аркуш "Звіт", колонки A:B`}
+                      placeholder={t('mcpServers.taskPromptPlaceholder', { name: s.name })}
                     />
                   </label>
                   <label className={notesStyles.intervalLabel}>
-                    Інтервал
+                    {t('mcpServers.interval')}
                     <select
                       value={taskForm.intervalMin}
                       onChange={e => setTaskForm({ ...taskForm, intervalMin: Number(e.target.value) })}
                     >
-                      <option value={15}>15 хв</option>
-                      <option value={30}>30 хв</option>
-                      <option value={60}>1 год</option>
-                      <option value={180}>3 год</option>
-                      <option value={360}>6 год</option>
-                      <option value={720}>12 год</option>
-                      <option value={1440}>1 день</option>
-                      <option value={10080}>1 тиждень</option>
+                      <option value={15}>{t('mcpServers.intervalMin', { n: 15 })}</option>
+                      <option value={30}>{t('mcpServers.intervalMin', { n: 30 })}</option>
+                      <option value={60}>{t('mcpServers.intervalHours', { n: 1 })}</option>
+                      <option value={180}>{t('mcpServers.intervalHours', { n: 3 })}</option>
+                      <option value={360}>{t('mcpServers.intervalHours', { n: 6 })}</option>
+                      <option value={720}>{t('mcpServers.intervalHours', { n: 12 })}</option>
+                      <option value={1440}>{t('mcpServers.intervalDay')}</option>
+                      <option value={10080}>{t('mcpServers.intervalWeek')}</option>
                     </select>
                   </label>
                   <div className={notesStyles.editFormRow}>
@@ -367,7 +394,7 @@ export function McpServersSection({ sessionId }: Props) {
                       onClick={() => saveTask(s)}
                       disabled={!taskForm.name.trim() || !taskForm.prompt.trim()}
                     >
-                      Створити
+                      {t('mcpServers.create')}
                     </button>
                   </div>
                 </div>
@@ -376,15 +403,16 @@ export function McpServersSection({ sessionId }: Props) {
               {editingId === s.id && (
                 <div className={notesStyles.editForm}>
                   <label className={notesStyles.editLabel}>
-                    <span>Назва (namespace)</span>
+                    <span>{t('mcpServers.nameLabel')}</span>
                     <input
                       type="text"
                       value={form.name}
                       onChange={e => setForm({ ...form, name: e.target.value })}
                     />
+                    {nameErrorEl}
                   </label>
                   <label className={notesStyles.editLabel}>
-                    <span>Команда</span>
+                    <span>{t('mcpServers.commandLabel')}</span>
                     <input
                       type="text"
                       value={form.command}
@@ -392,7 +420,7 @@ export function McpServersSection({ sessionId }: Props) {
                     />
                   </label>
                   <label className={notesStyles.editLabel}>
-                    <span>Аргументи (по одному на рядок)</span>
+                    <span>{t('mcpServers.argsLabel')}</span>
                     <textarea
                       rows={2}
                       value={form.args}
@@ -400,7 +428,7 @@ export function McpServersSection({ sessionId }: Props) {
                     />
                   </label>
                   <label className={notesStyles.editLabel}>
-                    <span>Env (KEY=value, по одній на рядок)</span>
+                    <span>{t('mcpServers.envLabel')}</span>
                     <textarea
                       rows={3}
                       value={form.envText}
@@ -414,7 +442,7 @@ export function McpServersSection({ sessionId }: Props) {
                       onChange={e => setForm({ ...form, autoApproveAll: e.target.checked })}
                       style={{ width: 'auto' }}
                     />
-                    <span>Авто-схвалювати всі інструменти</span>
+                    <span>{t('mcpServers.autoApproveAll')}</span>
                   </label>
                   <div className={notesStyles.editFormRow}>
                     <button
@@ -423,7 +451,7 @@ export function McpServersSection({ sessionId }: Props) {
                       onClick={save}
                       disabled={!canSave}
                     >
-                      Зберегти
+                      {t('mcpServers.save')}
                     </button>
                   </div>
                 </div>
