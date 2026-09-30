@@ -42,6 +42,7 @@ const ALLOWED_TOOLS = [
   'mcp__finmap__get_projects',
   'mcp__finmap__get_counterparties',
   'mcp__finmap__get_operations',
+  'mcp__finmap__summarize_operations',
   'mcp__finmap__get_operation_details',
   'mcp__finmap__check_externalIds',
   'mcp__finmap__get_invoices',
@@ -74,7 +75,15 @@ const DISALLOWED_TOOLS = [
   'Bash', 'BashOutput', 'KillShell', 'KillBash', 'PowerShell', 'Monitor',
   'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
   'CronCreate', 'CronDelete', 'RemoteTrigger', 'ScheduleWakeup', 'EnterWorktree', 'ExitWorktree', 'Workflow',
+  // Subagents run in the foreground here (see CLAUDE_CODE_DISABLE_BACKGROUND_TASKS
+  // below), so there is nothing to list, message, poll or stop.
+  'SendMessage', 'ListAgents', 'TaskOutput', 'TaskStop',
+  // Interactive terminal UI Folio doesn't render — Claude asks in plain text instead.
+  'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode',
 ];
+
+/** Plumbing calls that say nothing to the user — no badge in the chat. */
+const SILENT_TOOLS = new Set(['ToolSearch', 'TodoWrite', 'Skill', 'ListMcpResourcesTool', 'ReadMcpResourceTool']);
 
 /** Non-MCP built-ins canUseTool may allow if they weren't auto-approved. */
 const SAFE_BUILTINS = new Set(ALLOWED_TOOLS.filter(t => !t.startsWith('mcp__')));
@@ -264,7 +273,10 @@ export class AgentManager {
           (await buildFinmapMcpServer(api, this.sessionStore, session.id)).instance);
         // Generous per-call timeout: a tool that pages through operations
         // may wait for Finmap's rate-limit windows (10 / 5 s, 120 / min).
-        finmapServer = { ...httpRoute.config, timeout: 5 * 60_000 };
+        // alwaysLoad: Finmap tools are in the prompt from the start instead of
+        // being deferred behind ToolSearch — one less round trip per agent,
+        // and a subagent can't "lose" its tools.
+        finmapServer = { ...httpRoute.config, timeout: 5 * 60_000, alwaysLoad: true };
       }
 
       // User-configured MCP servers (stdio child processes the SDK spawns).
@@ -367,7 +379,15 @@ export class AgentManager {
         // plugins, or claude.ai connectors (which may even share a name like
         // "Finmap" and confuse the model).
         strictMcpConfig: true,
-        env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as Record<string, string>,
+        env: {
+          ...process.env,
+          ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+          // Subagents run in the foreground: the Agent call returns the
+          // finished result (several calls in one message still run in
+          // parallel). Background agents made the main turn end early, fill
+          // the reply with "waiting…" notes and resume agents by message.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+        } as Record<string, string>,
         pathToClaudeCodeExecutable: getClaudePath() || undefined,
         mcpServers: { ...userMcpServers, finmap: finmapServer },
         allowedTools: ALLOWED_TOOLS,
@@ -396,6 +416,7 @@ export class AgentManager {
       // `assistant` message follows — append once. No deltas (older CLI or
       // background run) → fall back to the blocks.
       let sawTextDelta = false;
+      let needsBreak = false;
       let turnInputTokens = 0;
       let contextTokens: number | undefined;
       let contextWindow: number | undefined = session.contextWindow;
@@ -407,6 +428,7 @@ export class AgentManager {
       // Subagents: CLI task id ↔ the Task tool_use that spawned it.
       const taskByToolUse = new Map<string, string>();
       const openTasks = new Set<string>();
+      const seenTasks = new Set<string>();
 
       for await (const message of stream) {
         if (abortController.signal.aborted) break;
@@ -431,14 +453,19 @@ export class AgentManager {
             const ev = message.event as any;
             if (ev?.type === 'message_start') {
               sawTextDelta = false;
+              needsBreak = fullResponse.length > 0 && !fullResponse.endsWith('\n');
               const u = ev.message?.usage ?? {};
               turnInputTokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
               contextTokens = turnInputTokens;
               h.onUsage?.({ contextTokens: turnInputTokens, contextWindow });
             } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
               sawTextDelta = true;
-              fullResponse += ev.delta.text;
-              h.onChunk?.(ev.delta.text);
+              // Text after a tool round starts a new message — without a
+              // break the two sentences run together ("…продовжити.Обидва…").
+              const piece = (needsBreak ? '\n\n' : '') + ev.delta.text;
+              needsBreak = false;
+              fullResponse += piece;
+              h.onChunk?.(piece);
             } else if (ev?.type === 'message_delta') {
               const afterTurn = turnInputTokens + (ev.usage?.output_tokens ?? 0);
               contextTokens = afterTurn;
@@ -454,19 +481,20 @@ export class AgentManager {
               const taskId = taskByToolUse.get(message.parent_tool_use_id);
               if (!taskId) break;
               for (const block of content as any[]) {
-                if (block?.type === 'tool_use') h.onAgent?.({ kind: 'progress', id: taskId, tool: block.name });
+                if (block?.type === 'tool_use' && !SILENT_TOOLS.has(block.name)) h.onAgent?.({ kind: 'progress', id: taskId, tool: block.name });
               }
               break;
             }
             for (const block of content as any[]) {
               if (block?.type === 'text' && typeof block.text === 'string') {
                 if (!sawTextDelta) {
-                  fullResponse += block.text;
-                  h.onChunk?.(block.text);
+                  const piece = (fullResponse.length > 0 && !fullResponse.endsWith('\n') ? '\n\n' : '') + block.text;
+                  fullResponse += piece;
+                  h.onChunk?.(piece);
                 }
               } else if (block?.type === 'tool_use' && typeof block.name === 'string') {
                 // Subagent launches get their own card; don't double-show.
-                if (!SUBAGENT_TOOLS.has(block.name)) h.onToolCall?.(block.name, (block.input ?? {}) as Record<string, unknown>);
+                if (!SUBAGENT_TOOLS.has(block.name) && !SILENT_TOOLS.has(block.name)) h.onToolCall?.(block.name, (block.input ?? {}) as Record<string, unknown>);
               }
             }
             break;
@@ -480,6 +508,7 @@ export class AgentManager {
               const isAgent = m.task_type === 'local_agent' || typeof m.subagent_type === 'string';
               if (!isAgent || m.ambient || m.skip_transcript) break;
               openTasks.add(m.task_id);
+              seenTasks.add(m.task_id);
               if (m.tool_use_id) taskByToolUse.set(m.tool_use_id, m.task_id);
               h.onAgent?.({
                 kind: 'start',
@@ -493,12 +522,16 @@ export class AgentManager {
               h.onAgent?.({
                 kind: 'progress',
                 id: m.task_id,
-                tool: m.last_tool_name,
+                tool: m.last_tool_name && !SILENT_TOOLS.has(m.last_tool_name) ? m.last_tool_name : undefined,
                 toolCount: m.usage?.tool_uses,
                 tokens: m.usage?.total_tokens,
               });
             } else if (m.subtype === 'task_notification' || (m.subtype === 'task_updated' && ['completed', 'failed', 'killed'].includes(m.patch?.status))) {
-              if (!openTasks.has(m.task_id)) break;
+              // task_updated(completed) usually arrives first, without usage;
+              // the task_notification that follows carries tool/token counts.
+              // Emit for both so the card gets its final numbers.
+              if (!seenTasks.has(m.task_id)) break;
+              if (!openTasks.has(m.task_id) && m.subtype !== 'task_notification') break;
               openTasks.delete(m.task_id);
               const status = m.status ?? m.patch?.status;
               h.onAgent?.({

@@ -54,7 +54,8 @@ export class FinmapAPI {
 
   constructor(private apiKey: string | undefined, opts: FinmapAPIOptions = {}) {
     this.priority = opts.priority ?? 'interactive';
-    this.baseUrl = opts.baseUrl ?? BASE_URL;
+    // FOLIO_FINMAP_BASE_URL: test hook for running the real agent stack against a mock API.
+    this.baseUrl = opts.baseUrl ?? process.env.FOLIO_FINMAP_BASE_URL ?? BASE_URL;
     this.limiterOverride = opts.limiter;
   }
 

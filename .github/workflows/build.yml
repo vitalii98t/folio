@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Cheap static guards. check:tools caught nothing in 1.0.0 because it
+      # did not exist: one unconvertible tool schema hid every Finmap tool.
+      - name: Check MCP tool schemas and translations
+        run: |
+          npm run check:tools
+          npm run check:i18n
+
       # GROQ_API_KEY is baked into the main-process bundle by build-main.mjs
       # (voice input). Add it under Settings → Secrets and variables → Actions;
       # without it the build still succeeds, voice just shows as unavailable.
@@ -75,8 +82,8 @@ jobs:
         with:
           name: windows
           path: |
-            release/*.exe
-            release/*.exe.blockmap
+            release/Folio-Setup-*.exe
+            release/Folio-Setup-*.exe.blockmap
             release/latest.yml
           if-no-files-found: error
 
@@ -120,7 +127,24 @@ jobs:
         with:
           path: artifacts
 
+      # A re-run (or the rebuild GitHub triggers when a draft is published)
+      # must not replace the files of a release users are already updating
+      # from: the new installer would no longer match the published latest.yml.
+      - name: Skip upload if the release is already published
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft' 2>/dev/null || echo "none")
+          if [ "$state" = "false" ]; then
+            echo "::warning title=Release already published::${{ github.ref_name }} is published — its assets were left untouched."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create Release
+        if: steps.guard.outputs.upload == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*

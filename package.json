@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Folio — intelligent desktop assistant for Finmap",
   "author": "vitalii98t",
   "homepage": "https://finmap.online",
@@ -18,6 +18,7 @@
     "build:main": "node build-main.mjs",
     "build:renderer": "vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:tools": "node scripts/check-mcp-tools.mjs",
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
@@ -132,7 +133,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Folio",
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Folio-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [

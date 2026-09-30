@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { app, shell } from 'electron';
 import { FinmapAPI } from './finmap-api';
 import { reconcile } from './reconcile-matcher';
+import { summarizeOperations, GROUP_DIMENSIONS } from './operations-summary';
 import { GDriveClient, DriveFileTooLargeError, DRIVE_MAX_DOWNLOAD_BYTES } from './gdrive-client';
 
 let _sdk: typeof import('@anthropic-ai/claude-agent-sdk') | null = null;
@@ -15,8 +16,11 @@ async function getSDK() {
 
 const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 
+/** Tool result as compact JSON. No indentation on purpose: it added ~20% to
+ *  every result, and big pages then overflowed the CLI's tool-output cap
+ *  (the model ended up grepping a dump file instead of reading the data). */
 function text(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
 }
 
 /** Slim down operation object — keep only fields Claude needs */
@@ -56,6 +60,12 @@ function slimEntity(e: any) {
   if (e.parentId) r.parentId = e.parentId;
   return r;
 }
+
+/** String→string map (HTTP headers, env vars). Deliberately NOT z.record():
+ *  the SDK's JSON-schema conversion throws on zod-4 records, and one broken
+ *  schema fails tools/list for the WHOLE server — Claude then sees no Finmap
+ *  tools at all. Guarded by scripts/check-mcp-tools.mjs. */
+const STRING_MAP = z.object({}).catchall(z.string());
 
 /** One invoice line. Finmap accepts an existing good by id, or a label it
  *  will find-or-create (normalised match). */
@@ -145,7 +155,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       {
         url: z.string(),
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().default('GET'),
-        headers: z.record(z.string(), z.string()).optional(),
+        headers: STRING_MAP.optional(),
         body: z.any().optional(),
       },
       async (input) => {
@@ -414,7 +424,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
     ),
 
     // ── Operations ──
-    tool('get_operations', 'Search operations with filters. Returns slim list. limit MUST be ≤100 (Finmap server-side cap) — for more, use offset to paginate.',
+    tool('get_operations', 'List individual operations matching filters (slim rows). For totals or breakdowns use summarize_operations instead. limit ≤ 100 (Finmap cap), default 50 — a 100-row page with long comments is large; paginate with offset.',
       {
         accountIds: z.array(z.string()).optional(),
         categoryIds: z.array(z.string()).optional(),
@@ -436,6 +446,56 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
       async (input) => {
         const result = await api.getOperations(input);
         return text({ list: result.list.map(slimOp), total: result.total });
+      }
+    ),
+    tool('summarize_operations',
+      'Totals and breakdowns over ALL operations matching the filters, computed in code (pages through Finmap internally). ' +
+      'Use this for every "how much / compare / breakdown / top N / by project|category|counterparty|month" question — never page get_operations and add numbers up yourself. ' +
+      'groupBy takes 1-3 dimensions, e.g. ["project","month"] for a month-over-month comparison by project in ONE call. ' +
+      'Rows are per currency (never mixed); companySum is the amount converted to the company currency. Split operations are attributed to each project/category by share. ' +
+      'Returns {rows, totals (per type and currency), operations, truncated?}.',
+      {
+        groupBy: z.array(z.enum(GROUP_DIMENSIONS)).min(1).max(3),
+        startDate: z.number().describe('Unix ms, period start (required — keeps the scan bounded)'),
+        endDate: z.number().describe('Unix ms, period end'),
+        types: z.array(z.enum(['income', 'expense', 'transfer'])).optional().describe('Default: all types; rows are split by type when "type" is in groupBy, totals always are.'),
+        accountIds: z.array(z.string()).optional(),
+        categoryIds: z.array(z.string()).optional(),
+        counterpartyIds: z.array(z.string()).optional(),
+        projectIds: z.array(z.string()).optional(),
+        tagIds: z.array(z.string()).optional(),
+        search: z.string().optional(),
+        sumFrom: z.number().optional(),
+        sumTo: z.number().optional(),
+        approved: z.boolean().optional(),
+        useDateOfPayment: z.boolean().optional().describe('Filter and bucket by payment date instead of accrual date.'),
+        top: z.number().int().min(1).max(300).optional().default(100).describe('Max rows, largest first; the rest is folded into otherRows.'),
+        withLargest: z.boolean().optional().describe('Attach the single biggest operation (id, date, sum, counterparty, comment) to every row — answers "the largest … in each …" with no extra calls. Finmap cannot sort by amount.'),
+      },
+      async (input) => {
+        const { groupBy, top, withLargest, ...filters } = input;
+        const PAGE = 100;
+        const MAX_PAGES = 150; // 15 000 operations — ~75 s at Finmap's rate limit
+        const ops: any[] = [];
+        let total = 0;
+        let truncated = false;
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const result = await api.getOperations({ ...filters, limit: PAGE, offset: page * PAGE });
+          const list = (result?.list ?? []) as any[];
+          total = typeof result?.total === 'number' ? result.total : ops.length + list.length;
+          ops.push(...list);
+          if (list.length < PAGE) break;
+          if (page === MAX_PAGES - 1) truncated = true;
+        }
+        let tagLabels: Map<string, string> | undefined;
+        if (groupBy.includes('tag')) {
+          try { tagLabels = new Map((await api.getTags()).map((t: any) => [t.id, t.label])); } catch { /* ids only */ }
+        }
+        const summary = summarizeOperations(ops, groupBy, { useDateOfPayment: input.useDateOfPayment, tagLabels, top, withLargest });
+        return text({
+          ...summary,
+          ...(truncated ? { truncated: true, warning: `Only the first ${ops.length} operations were scanned — narrow the period or add filters and sum the parts.` } : {}),
+        });
       }
     ),
     tool('get_operation_details', 'Get one operation by id or externalId.',
@@ -554,7 +614,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         name: z.string().min(1).describe('Lower-case namespace, no spaces. Becomes tool prefix: mcp__<name>__<tool>.'),
         command: z.string().min(1).describe('Executable to run, e.g. "npx", "uvx", or absolute path.'),
         args: z.array(z.string()).describe('Args passed to the executable, e.g. ["-y", "@modelcontextprotocol/server-slack"].'),
-        env: z.record(z.string(), z.string()).optional().describe('Env vars (API tokens). Stored locally in plaintext.'),
+        env: STRING_MAP.optional().describe('Env vars (API tokens). Stored locally in plaintext.'),
         autoApproveAll: z.boolean().optional().default(false).describe('When true, ALL tools from this server skip the per-call confirmation. Use only for trusted, read-mostly services.'),
       },
       async (input) => {
@@ -581,7 +641,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
         name: z.string().optional(),
         command: z.string().optional(),
         args: z.array(z.string()).optional(),
-        env: z.record(z.string(), z.string()).optional(),
+        env: STRING_MAP.optional(),
         enabled: z.boolean().optional(),
         autoApproveAll: z.boolean().optional(),
       },
@@ -1244,5 +1304,7 @@ export async function buildFinmapMcpServer(api: FinmapAPI, sessionStore?: any, s
     ),
   ];
 
-  return createSdkMcpServer({ name: 'finmap', version: '1.0.0', tools });
+  // alwaysLoad: tools are in the prompt from the first turn instead of being
+  // deferred behind ToolSearch (background runs use this in-process server).
+  return createSdkMcpServer({ name: 'finmap', version: '1.0.0', tools, alwaysLoad: true });
 }
